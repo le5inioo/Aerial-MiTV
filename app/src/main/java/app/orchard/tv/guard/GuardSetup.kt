@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.database.ContentObserver
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -65,6 +66,12 @@ object GuardSetup {
     /** Test hook: probe another port to watch the toggle without closing a working ADB link. */
     @Volatile var adbProbePort = 5555
 
+    /** When a Dangbei shutdown was announced (elapsed) and in which boot; see [shuttingDown]. */
+    private const val KEY_SHUTDOWN_AT = "shutdown_announced_at"
+    private const val KEY_SHUTDOWN_BOOT_ID = "shutdown_announced_boot_id"
+    private const val SHUTDOWN_HOLD_MS = 2 * 60_000L
+    @Volatile private var shutdownRecheck = false
+
     private const val KEY_OWN_SCREENSAVER = "own_screensaver"
     private const val KEY_HOME_IN_FRONT = "home_in_front"
     private const val KEY_HOME_IN_FRONT_AT = "home_in_front_at"
@@ -74,6 +81,10 @@ object GuardSetup {
     private const val KEY_HOME_IN_FRONT_BOOT_ID = "home_in_front_boot_id"
     private const val KEY_STOCK_HOME_BOOT_ID = "stock_home_boot_id"
     private const val KEY_INSTALLER_OPENED = "installer_opened_at"
+    private const val KEY_STOCK_VISIT_AT = "stock_visit_at"
+    private const val KEY_STOCK_VISIT_UNTIL = "stock_visit_until"
+    private const val KEY_STOCK_VISIT_BOOT = "stock_visit_boot"
+    private const val KEY_STOCK_VISIT_BOOT_ID = "stock_visit_boot_id"
     private const val KEY_SCREENSAVER_SWITCHED_OFF = "screensaver_switched_off"
     private const val KEY_SCREENSAVER_ENABLED = "screensaver_enabled"
     private const val KEY_OFF_IN_STANDBY = "guard_off_in_standby"
@@ -107,7 +118,7 @@ object GuardSetup {
 
     // Synchronized: BootReceiver calls ensureEnabled off the main thread.
     @Synchronized
-    private fun watchScreenOn(context: Context) {
+    private fun watchScreenOn(context: Context, litNowCounts: Boolean = true) {
         if (screenOnWatch != null) return
         val app = context.applicationContext
         val receiver = object : BroadcastReceiver() {
@@ -116,13 +127,14 @@ object GuardSetup {
                 runCatching { app.unregisterReceiver(this) }
                 screenOnWatch = null
                 Log.i(TAG, "screen on; putting Home Guard back after standby")
+                clearShutdown(app)
                 ensureEnabled(app)
             }
         }
         screenOnWatch = receiver
         app.registerReceiver(receiver, IntentFilter(Intent.ACTION_SCREEN_ON))
         // Lit in between: the broadcast is already gone.
-        if (context.getSystemService<PowerManager>()?.isInteractive == true) receiver.onReceive(app, Intent(Intent.ACTION_SCREEN_ON))
+        if (litNowCounts && context.getSystemService<PowerManager>()?.isInteractive == true) receiver.onReceive(app, Intent(Intent.ACTION_SCREEN_ON))
     }
 
     /** Called by the guard at SCREEN_OFF: takes it out of the list and waits for the screen. */
@@ -139,6 +151,42 @@ object GuardSetup {
                 .split(':').filter { it.isNotBlank() && ComponentName.unflattenFromString(it)?.flattenToString() != me }
             Settings.Secure.putString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, others.joinToString(":"))
         }.onFailure { Log.w(TAG, "could not take Home Guard out", it) }
+    }
+
+    /**
+     * Called by the guard when the firmware announces a shutdown with the screen still on (Dangbei,
+     * issue #1497): out of the list now, back at the next SCREEN_ON or the next start.
+     */
+    fun stepOutForShutdown(service: android.accessibilityservice.AccessibilityService) {
+        Log.i(TAG, "shutdown announced; taking Home Guard out")
+        // On disk at once: the firmware force-stops Aerial 0.4 s later and starts it straight
+        // again as the Home, and that new process put the guard back 0.5 s after, a second before
+        // the screen went off; the crash came with that change (DBF3 Air on 1.98, issue #1497).
+        if (isUserUnlocked(service)) service.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putLong(KEY_SHUTDOWN_AT, SystemClock.elapsedRealtime())
+            .putString(KEY_SHUTDOWN_BOOT_ID, app.orchard.tv.system.BootOpen.BOOT_ID).commit()
+        watchScreenOn(service, litNowCounts = false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) runCatching { service.disableSelf() }
+    }
+
+    /**
+     * A shutdown was announced in this boot in the last two minutes and the screen has not lit
+     * since: the guard stays out (issue #1497). Dangbei's "shutdown" is a suspend, so the boot id
+     * stays; SCREEN_ON after it clears the note, and a real restart has another boot id.
+     */
+    private fun shuttingDown(context: Context): Boolean {
+        if (!isUserUnlocked(context)) return false
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val at = prefs.getLong(KEY_SHUTDOWN_AT, 0L)
+        if (at == 0L) return false
+        val sameBoot = prefs.getString(KEY_SHUTDOWN_BOOT_ID, null) == app.orchard.tv.system.BootOpen.BOOT_ID
+        return sameBoot && SystemClock.elapsedRealtime() - at in 0 until SHUTDOWN_HOLD_MS
+    }
+
+    private fun clearShutdown(context: Context) {
+        if (!isUserUnlocked(context)) return
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_SHUTDOWN_AT).remove(KEY_SHUTDOWN_BOOT_ID).apply()
     }
 
     /**
@@ -197,6 +245,40 @@ object GuardSetup {
             .putLong(KEY_STOCK_HOME_AT, SystemClock.elapsedRealtime())
             .putLong(KEY_STOCK_HOME_BOOT, System.currentTimeMillis() - SystemClock.elapsedRealtime())
             .putString(KEY_STOCK_HOME_BOOT_ID, app.orchard.tv.system.BootOpen.BOOT_ID).apply()
+
+    /**
+     * The viewer's visit to the stock launcher, opened on purpose from Aerial (HomeGuardService
+     * .allowStockLauncher), kept on disk until [untilElapsed] (elapsed realtime); null ends it. A
+     * guard killed and revived in the middle of it had lost it in memory and took the launcher
+     * away: Haier WATERFALL_T962 (YunOS, Android 5.1, 920 MB), whose stock launcher is 酷喵, killed
+     * Aerial again and again, and each revival pulled 酷喵 back to Aerial a second after the tile
+     * opened it (issue #1491, the reporter's log).
+     */
+    fun noteStockVisit(context: Context, untilElapsed: Long?) {
+        if (!isUserUnlocked(context)) return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (untilElapsed == null) {
+            if (!prefs.contains(KEY_STOCK_VISIT_UNTIL)) return
+            prefs.edit().remove(KEY_STOCK_VISIT_AT).remove(KEY_STOCK_VISIT_UNTIL).remove(KEY_STOCK_VISIT_BOOT)
+                .remove(KEY_STOCK_VISIT_BOOT_ID).apply()
+            return
+        }
+        prefs.edit()
+            .putLong(KEY_STOCK_VISIT_AT, SystemClock.elapsedRealtime())
+            .putLong(KEY_STOCK_VISIT_UNTIL, untilElapsed)
+            .putLong(KEY_STOCK_VISIT_BOOT, System.currentTimeMillis() - SystemClock.elapsedRealtime())
+            // At once: the firmware that makes this matter kills Aerial moments after the tile.
+            .putString(KEY_STOCK_VISIT_BOOT_ID, app.orchard.tv.system.BootOpen.BOOT_ID).commit()
+    }
+
+    /** How long the visit noted by [noteStockVisit] still runs, in this boot; 0 when there is none. */
+    fun stockVisitLeftMs(context: Context): Long {
+        if (!isUserUnlocked(context)) return 0L
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val at = prefs.getLong(KEY_STOCK_VISIT_AT, -1L)
+        if (!thisBoot(prefs, at, KEY_STOCK_VISIT_BOOT, KEY_STOCK_VISIT_BOOT_ID)) return 0L
+        return (prefs.getLong(KEY_STOCK_VISIT_UNTIL, 0L) - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+    }
 
     /**
      * Whether, in this boot, a stock launcher's home came to the front after Aerial's Home last left
@@ -469,6 +551,8 @@ object GuardSetup {
             runCatching {
                 Settings.Global.putInt(resolver, Settings.Global.ADB_ENABLED, 1)
                 Log.i(TAG, "ADB debugging had been switched off; turned it back on")
+                // In Aerial's own log too: logcat on Xiaomi rolls over in minutes.
+                DiagLog.i("guard: ADB had been switched off; turned it back on (keep_adb)")
             }.onFailure { Log.w(TAG, "could not turn ADB back on", it) }
             return
         }
@@ -805,15 +889,73 @@ object GuardSetup {
         }.onFailure { Log.w(TAG, "could not allow the notification listener", it) }
     }
 
+    /**
+     * XGIMI rewrites the enabled list two to four seconds after the user is unlocked and drops the
+     * guard from it: on the H3S only XGIMI's own service was left until the sync put the guard back
+     * 110 s later (issue #1377, boot timeline of 2026-11-14). Watch the list in the first minutes of
+     * a boot and write the entry back 1.5 s after it goes, at most three times: outside a boot a
+     * missing entry is the viewer's choice in Settings, which the next start overrides as before.
+     */
+    private const val LIST_WATCH_WINDOW_MS = 5 * 60_000L
+    private const val LIST_WATCH_DELAY_MS = 1_500L
+    private const val LIST_WATCH_MAX_TRIES = 3
+    private var listWatchTries = 0
+    @Volatile private var listWatch: ContentObserver? = null
+
+    @Synchronized
+    fun watchEnabledList(context: Context) {
+        if (listWatch != null) return
+        val app = context.applicationContext
+        val handler = Handler(Looper.getMainLooper())
+        val me = ComponentName(app, HomeGuardService::class.java).flattenToString()
+        val watch = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) {
+                handler.postDelayed({
+                    if (listWatchTries >= LIST_WATCH_MAX_TRIES) return@postDelayed
+                    if (SystemClock.elapsedRealtime() > LIST_WATCH_WINDOW_MS) return@postDelayed
+                    val listed = Settings.Secure
+                        .getString(app.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+                        .orEmpty().split(':')
+                        .any { ComponentName.unflattenFromString(it)?.flattenToString() == me }
+                    if (listed) return@postDelayed
+                    // Counted only when the entry was actually put back: standing out for standby,
+                    // or a write another path had just made, must not use up the tries.
+                    if (ensureEnabled(app)) {
+                        listWatchTries++
+                        Log.i(TAG, "the firmware dropped Home Guard from the enabled list; putting it back ($listWatchTries)")
+                    }
+                }, LIST_WATCH_DELAY_MS)
+            }
+        }
+        runCatching {
+            app.contentResolver.registerContentObserver(
+                Settings.Secure.getUriFor(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES), false, watch,
+            )
+            listWatch = watch
+        }.onFailure { Log.w(TAG, "could not watch the enabled list", it) }
+    }
+
     fun ensureEnabled(context: Context): Boolean {
         ensureDeveloperMode(context)
         ensureAdb(context)
+        watchEnabledList(context)
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_SECURE_SETTINGS) != PackageManager.PERMISSION_GRANTED) return false
         restoreReceivers(context)
         keepScreensaver(context)
         RevivalSync.ensure(context)
         ensureListenerBeforeNougat(context)
         if (standingOut(context)) { watchScreenOn(context); return false }
+        if (shuttingDown(context)) {
+            Log.i(TAG, "shutdown announced a moment ago; Home Guard stays out until the screen lights")
+            watchScreenOn(context, litNowCounts = false)
+            // If no shutdown follows, back when the hold is over rather than at the next start.
+            if (!shutdownRecheck) {
+                shutdownRecheck = true
+                val app = context.applicationContext
+                Handler(Looper.getMainLooper()).postDelayed({ shutdownRecheck = false; ensureEnabled(app) }, SHUTDOWN_HOLD_MS + 1_000L)
+            }
+            return false
+        }
         val me = ComponentName(context, HomeGuardService::class.java).flattenToString()
         val resolver = context.contentResolver
         val current = Settings.Secure.getString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
