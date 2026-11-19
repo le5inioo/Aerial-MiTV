@@ -116,10 +116,46 @@ class PhoneServer private constructor(
                     json(state().put("saved", ok))
                 }
                 session.method == Method.POST && path == "/api/webhost" -> {
-                    // Where the image host is: the owner may move the server to another machine.
+                    // The owner's links, each with a name. Which one feeds the wallpaper or the
+                    // screensaver is a separate pick (/api/webhostpick). The phone sends "hosts"
+                    // as a JSON array; "urls" (newline-separated) and "url" are the old shapes,
+                    // still accepted so an older page cannot wipe the list.
+                    val f = form(session)
+                    val hosts = mutableListOf<WebHost>()
+                    val rawHosts = f["hosts"]?.takeIf { it.isNotBlank() }
+                    if (rawHosts != null) {
+                        runCatching {
+                            val arr = JSONArray(rawHosts)
+                            (0 until arr.length()).forEach { i ->
+                                val o = arr.optJSONObject(i) ?: return@forEach
+                                hosts.add(WebHost(
+                                    name = o.optString("name"),
+                                    url = o.optString("url"),
+                                ))
+                            }
+                        }
+                    } else {
+                        val raw = f["urls"]?.takeIf { it.isNotBlank() } ?: f["url"].orEmpty()
+                        raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+                            .forEach { hosts.add(WebHost(name = "", url = it)) }
+                    }
                     var ok = false
-                    val url = form(session)["url"].orEmpty()
-                    if (url.isNotBlank()) onMain { ok = Wallpapers.setWebHostUrl(url) }
+                    if (hosts.isNotEmpty()) onMain { ok = Wallpapers.setWebHosts(hosts) }
+                    json(state().put("saved", ok))
+                }
+                session.method == Method.POST && path == "/api/webhostpick" -> {
+                    // Any number of hosts for the wallpaper or the screensaver. "ids" is a JSON
+                    // array; the old single "id" still works and an empty list aggregates them all.
+                    val f = form(session)
+                    val wallpaper = f["use"] != "saver"
+                    val ids = runCatching {
+                        f["ids"]?.let { arr ->
+                            val ja = JSONArray(arr)
+                            (0 until ja.length()).mapNotNull { ja.optString(it).takeIf { s -> s.isNotBlank() } }
+                        }
+                    }.getOrNull() ?: f["id"]?.takeIf { it.isNotBlank() }?.let { listOf(it) } ?: emptyList()
+                    var ok = false
+                    onMain { ok = Wallpapers.setWebHostSelected(wallpaper, ids) }
                     json(state().put("saved", ok))
                 }
                 session.method == Method.POST && path == "/api/screensaver" -> {
@@ -292,6 +328,16 @@ class PhoneServer private constructor(
             .put("perApp", JSONObject().apply { Wallpapers.perApp.forEach { (slot, id) -> put(slot.toString(), id) } })
             .put("perAppSlots", Wallpapers.PER_APP_SLOTS)
             .put("webhostUrl", Wallpapers.webHostUrl())
+            .put("webhostUrls", JSONArray(Wallpapers.webHostUrls()))
+            .put("webhostHosts", JSONArray().apply {
+                Wallpapers.webHosts().forEach { h ->
+                    put(JSONObject().put("name", h.name).put("url", h.url))
+                }
+            })
+            .put("webhostWallpaperPick", Wallpapers.webHostPick(true))
+            .put("webhostSaverPick", Wallpapers.webHostPick(false))
+            .put("webhostWallpaperSelected", JSONArray(Wallpapers.webHostSelected(true).toList()))
+            .put("webhostSaverSelected", JSONArray(Wallpapers.webHostSelected(false).toList()))
             .put("screensaver", Wallpapers.screensaver.key)
             .put("saverVideo", Wallpapers.screensaverVideo ?: "")
             .put("screensaverFollows", Wallpapers.screensaverFollows)

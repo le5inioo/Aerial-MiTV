@@ -114,7 +114,6 @@
   }
   .badge:active { transform: scale(.9); }
   .tag { position: absolute; left: 7px; bottom: 7px; font-size: 11px; font-weight: 600; color: #fff; padding: 2px 7px; border-radius: 6px; background: rgba(0,0,0,.5); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
-
   .btn {
     display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; border: 0; border-radius: 12px;
     background: var(--tint); color: #fff; font-weight: 600; text-decoration: none; cursor: pointer;
@@ -138,6 +137,18 @@
   }
   .field input::placeholder { color: var(--tertiary); }
   .field .link { font-weight: 600; }
+  /* Image-host rows: just the name, then edit/delete and a tick to choose it. */
+  .host { display: flex; align-items: center; gap: 14px; }
+  .host .wh-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .host .link { font-weight: 600; }
+  .wh-circle {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border: 2px solid var(--tint); border-radius: 50%;
+    background: none; color: #fff; padding: 0; cursor: pointer;
+  }
+  .wh-circle svg { opacity: 0; color: #fff; }
+  .wh-circle.on, [aria-checked="true"] .wh-circle { background: var(--tint); border-color: var(--tint); }
+  .wh-circle.on svg, [aria-checked="true"] .wh-circle svg { opacity: 1; color: #fff; }
   .kids-arrows { justify-content: space-between; }
   .kids-arrows .dots { letter-spacing: 6px; font-size: 20px; color: var(--secondary); }
   .kids-arrows .link { font-size: 22px; font-weight: 600; min-width: 36px; }
@@ -343,29 +354,18 @@
 
   <h2 class="big" data-i18n="screensaver"></h2>
   <div class="list" id="ss" role="radiogroup" data-i18n-aria-label="screensaver_short">
-    <button class="item" role="radio" data-mode="aerial"><span class="txt"><span data-i18n="ss_aerial"></span><span class="sub" data-i18n="hint_aerial"></span></span><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
-    <button class="item" role="radio" data-mode="photos"><span class="txt"><span data-i18n="ss_photos"></span><span class="sub" data-i18n="hint_photos"></span></span><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
-    <button class="item" role="radio" data-mode="clock"><span class="txt"><span data-i18n="ss_clock"></span><span class="sub" data-i18n="hint_clock"></span></span><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
-    <button class="item" role="radio" data-mode="flipclock"><span class="txt"><span data-i18n="ss_flipclock"></span><span class="sub" data-i18n="hint_flipclock"></span></span><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
-    <button class="item" role="radio" data-mode="videos"><span class="txt"><span data-i18n="ss_videos"></span><span class="sub" data-i18n="hint_videos"></span></span><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
-    <button class="item" role="radio" data-mode="webhost"><span class="txt"><span data-i18n="ss_webhost"></span><span class="sub" data-i18n="hint_webhost"></span></span><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
-    <button class="item" role="radio" data-mode="system"><span class="txt"><span data-i18n="ss_system"></span><span class="sub" data-i18n="hint_system_mode"></span></span><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+    <button class="item" role="radio" data-mode="flipclock"><span class="txt"><span data-i18n="ss_flipclock"></span><span class="sub" data-i18n="hint_flipclock"></span></span><span class="wh-circle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>
+    <button class="item" role="radio" data-mode="aerial"><span class="txt"><span data-i18n="ss_aerial"></span><span class="sub" data-i18n="hint_aerial"></span></span><span class="wh-circle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>
+    <button class="item" role="radio" data-mode="videos"><span class="txt"><span data-i18n="ss_videos"></span><span class="sub" data-i18n="hint_videos"></span></span><span class="wh-circle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>
+    <button class="item" role="radio" data-mode="photos"><span class="txt"><span data-i18n="ss_photos"></span><span class="sub" data-i18n="hint_photos"></span></span><span class="wh-circle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>
+    <button class="item" role="radio" data-mode="webhost"><span class="txt"><span data-i18n="ss_webhost"></span><span class="sub" data-i18n="hint_webhost"></span></span><span class="wh-circle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>
+    <button class="item" role="radio" data-mode="system"><span class="txt"><span data-i18n="ss_system"></span><span class="sub" data-i18n="hint_system_mode"></span></span><span class="wh-circle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>
   </div>
   <p class="foot" id="ssFoot"></p>
+  <div id="ssHosts"></div>
   <div class="list" id="ssTimeBox" style="margin-top:10px">
     <label class="item"><span class="txt"><span data-i18n="sw_saver_time"></span><span class="sub" data-i18n="sw_saver_time_sub"></span></span><input class="switch" type="checkbox" id="swSaverTime" data-setting="screensaverClock"></label>
     <label class="item"><span class="txt"><span data-i18n="sw_saver_place"></span><span class="sub" data-i18n="sw_saver_place_sub"></span></span><input class="switch" type="checkbox" id="swSaverPlace" data-setting="screensaverCaption"></label>
-  </div>
-  <div id="videos">
-    <h2 data-i18n="videos_h"></h2>
-    <div class="list" id="videoList"></div>
-    <div class="list" style="margin-top:10px">
-      <label class="item tint center" id="videoUploadBtn">
-        <span id="videoUploadLabel" data-i18n="videos_upload"></span>
-        <input id="videoFile" type="file" accept=".mp4,.mov,video/mp4,video/quicktime" multiple hidden>
-      </label>
-    </div>
-    <p class="foot" data-i18n="videos_hint"></p>
   </div>
 </section>
 
@@ -430,14 +430,13 @@ let state = null, stateJson = '';
 
 // The language: ?lang=ru in the address, else the one picked under More (kept on the phone), else the
 // first of the phone's preferred languages that has a table, else English. Keys are in KEYS, one array of texts per language.
-const KEYS = ["screensaver", "screensaver_short", "ss_aerial", "ss_photos", "ss_clock", "focus", "focus_high", "focus_standard", "weather", "city_ph", "set", "upload_label", "feedback_h", "feedback_hint", "diag_show", "diag_copy", "diag_github", "hint_aerial", "hint_photos", "hint_clock", "g_live", "g_live_sub", "g_daily", "g_daily_sub", "g_photo", "g_builtin", "g_auto", "toast_wallpaper", "aria_delete", "confirm_delete", "wx_clear", "wx_partlycloudy", "wx_cloudy", "wx_fog", "wx_rain", "wx_snow", "wx_thunder", "wx_chosen", "wx_auto_btn", "toast_auto", "wx_guessed", "wx_none", "tag_source", "aria_rename", "toast_renamed", "toast_name_reset", "toast_rename_fail", "aria_reset_icon", "toast_icon_reset", "focus_hint_standard", "focus_hint_high", "daily_title", "daily_caption", "rotate_title", "rotate_caption", "empty_photos", "add_second", "toast_tv_updated", "sending_n", "toast_added", "toast_no_photos", "toast_send_fail", "toast_city_set", "toast_city_nf", "toast_set_fail", "toast_sending_icon", "toast_icon_set", "toast_icon_bad", "diag_collecting", "toast_diag_fail", "toast_copied", "toast_copy_manual", "language", "hint_follows", "ss_videos", "hint_videos", "videos_h", "videos_upload", "videos_hint", "videos_empty", "confirm_video_delete", "toast_videos_added", "toast_video_bad", "sending_video", "hint_system", "tab_home", "tab_more", "current_wp", "cancel", "save", "name_ph", "rename_hint", "change_icon", "this_tv", "folder_count", "folder_ph", "inputs_h", "inputs_hint", "rename_hint_app", "was_named", "arrange_hint", "arrange_unready", "hidden_h", "hidden_none", "hidden_locked", "show_app", "hide_app", "to_folder", "new_folder", "out_of_folder", "ungroup", "ungroup_confirm", "folder_hint", "toast_hidden", "toast_shown", "toast_in_folder", "toast_out_folder", "toast_ungrouped", "tab_looks", "looks_title", "show_on_home", "source_device", "source_plain", "source_device_hint", "tv_model", "sw_always", "sw_always_sub", "sw_weather", "sw_saver_time", "sw_saver_time_sub", "sw_saver_place", "sw_saver_place_sub", "g_source_sub", "icon_h", "icon_library", "icon_own", "icon_custom", "toast_icon_picked", "drop_hint", "drop_sub", "drop_none", "toast_diag_paste", "kids_h", "elders_h", "kids_used", "kids_left", "kids_nolimit", "kids_allowed", "kids_lock_day", "kids_lock_late", "kids_lock_break", "kids_pin_ph", "kids_unlock", "kids_wrong", "kids_need_pin", "kids_locked_foot", "kids_add", "kids_day", "kids_leave_k", "kids_leave_e", "kids_paused", "kids_resume", "kids_min", "kids_hm", "kids_erase", "kids_hr", "kids_both", "kids_off_line", "kids_settings", "kids_no_pin", "kids_pin_foot", "ks_meta", "ks_on", "ks_on_sub", "ks_block", "ks_block_sub", "ks_block_noguard", "ks_time_h", "ks_weekday", "ks_weekend", "ks_minutes", "ks_nolimit", "ks_window", "ks_from", "ks_to", "ks_break", "ks_break_every", "ks_break_len", "ks_time_foot", "ks_apps", "ks_apps_sub", "ks_input", "ks_save", "ks_saved", "ks_invalid", "ks_for", "per_app_h", "per_app_hint", "per_app_inherit", "saver_loop", "per_app_apply", "per_app_auto_on", "g_webhost", "wh_url_hint", "toast_webhost_set", "toast_webhost_bad", "ss_flipclock", "hint_flipclock", "ss_webhost", "hint_webhost", "ss_system", "hint_system_mode", "icon_batch_h", "icon_batch_btn", "icon_batch_hint", "toast_icon_batch_done", "toast_icon_batch_none", "current_ss"];
+const KEYS = ["screensaver","screensaver_short","ss_aerial","ss_photos","focus","focus_high","focus_standard","weather","city_ph","set","upload_label","feedback_h","feedback_hint","diag_show","diag_copy","diag_github","hint_aerial","hint_photos","g_live","g_live_sub","g_daily","g_daily_sub","g_photo","g_builtin","g_auto","toast_wallpaper","aria_delete","confirm_delete","wx_clear","wx_partlycloudy","wx_cloudy","wx_fog","wx_rain","wx_snow","wx_thunder","wx_chosen","wx_auto_btn","toast_auto","wx_guessed","wx_none","tag_source","aria_rename","toast_renamed","toast_name_reset","toast_rename_fail","aria_reset_icon","toast_icon_reset","focus_hint_standard","focus_hint_high","daily_title","daily_caption","rotate_title","rotate_caption","empty_photos","add_second","toast_tv_updated","sending_n","toast_added","toast_no_photos","toast_send_fail","toast_city_set","toast_city_nf","toast_set_fail","toast_sending_icon","toast_icon_set","toast_icon_bad","diag_collecting","toast_diag_fail","toast_copied","toast_copy_manual","language","hint_follows","ss_videos","hint_videos","videos_h","videos_upload","videos_hint","videos_empty","confirm_video_delete","toast_videos_added","toast_video_bad","sending_video","hint_system","tab_home","tab_more","current_wp","cancel","save","name_ph","rename_hint","change_icon","this_tv","folder_count","folder_ph","inputs_h","inputs_hint","rename_hint_app","was_named","arrange_hint","arrange_unready","hidden_h","hidden_none","hidden_locked","show_app","hide_app","to_folder","new_folder","out_of_folder","ungroup","ungroup_confirm","folder_hint","toast_hidden","toast_shown","toast_in_folder","toast_out_folder","toast_ungrouped","tab_looks","looks_title","show_on_home","source_device","source_plain","source_device_hint","tv_model","sw_always","sw_always_sub","sw_weather","sw_saver_time","sw_saver_time_sub","sw_saver_place","sw_saver_place_sub","g_source_sub","icon_h","icon_library","icon_own","icon_custom","toast_icon_picked","drop_hint","drop_sub","drop_none","toast_diag_paste","kids_h","elders_h","kids_used","kids_left","kids_nolimit","kids_allowed","kids_lock_day","kids_lock_late","kids_lock_break","kids_pin_ph","kids_unlock","kids_wrong","kids_need_pin","kids_locked_foot","kids_add","kids_day","kids_leave_k","kids_leave_e","kids_paused","kids_resume","kids_min","kids_hm","kids_erase","kids_hr","kids_both","kids_off_line","kids_settings","kids_no_pin","kids_pin_foot","ks_meta","ks_on","ks_on_sub","ks_block","ks_block_sub","ks_block_noguard","ks_time_h","ks_weekday","ks_weekend","ks_minutes","ks_nolimit","ks_window","ks_from","ks_to","ks_break","ks_break_every","ks_break_len","ks_time_foot","ks_apps","ks_apps_sub","ks_input","ks_save","ks_saved","ks_invalid","ks_for","per_app_h","per_app_hint","per_app_inherit","saver_loop","per_app_apply","per_app_auto_on","g_webhost","wh_url_hint","toast_webhost_set","toast_webhost_bad","ss_flipclock","hint_flipclock","ss_webhost","hint_webhost","ss_system","hint_system_mode","icon_batch_h","icon_batch_btn","icon_batch_hint","toast_icon_batch_done","toast_icon_batch_none","current_ss","wh_add","wh_urls_hint","wh_name_ph","wh_wp","wh_ss","wh_all","wh_uses_hint","wh_host","wh_all_agg","wh_edit","wh_need_one","set_wallpaper"];
 const TEXTS = {
  "zh": [
   "屏幕保护程序",
   "屏保",
   "航拍",
   "照片",
-  "时钟",
   "焦点样式",
   "高对比度",
   "标准",
@@ -452,8 +451,7 @@ const TEXTS = {
   "去 GitHub 反馈",
   "播放 Apple TV 航拍影片，画面会标出所在的地点。",
   "轮播每日精选和你的照片。",
-  "大号时钟，配合当前壁纸。",
-  "动态",
+  "视频壁纸",
   "航拍和你的视频。航拍在主屏幕上一直播放；你的视频默认停 10 秒后播放，按键停在当前画面。",
   "必应·最近一周",
   "最近七天的必应每日图片",
@@ -511,7 +509,7 @@ const TEXTS = {
   "离线轮播已添加的视频；没有可播放的视频时显示照片。",
   "我的视频",
   "添加视频",
-  "可以当屏保，也可以在「动态」壁纸里选。MP4 / MOV，建议 1080p H.264。每段最多 2 GB，所有视频最多占电视剩余空间的一半，现在还能放 {room} GB。",
+  "可以当屏保，也可以在「视频壁纸」里选。MP4 / MOV，建议 1080p H.264。每段最多 2 GB，所有视频最多占电视剩余空间的一半，现在还能放 {room} GB。",
   "还没有视频，屏保暂时显示照片。",
   "删除“{name}”？",
   "视频：添加 {n} 段，失败 {failed} 段",
@@ -650,15 +648,25 @@ const TEXTS = {
   "图标库目前只收录了一些主流应用的高清图标，未收录的应用请自行手动替换。",
   "已替换 {n} 个应用的图标",
   "所有收录的应用已在使用高清图标",
-  "当前屏保"
+  "当前屏保",
+  "添加链接",
+  "每次回到桌面从这些链接轮流取一张新图；增删或改动后立即生效。",
+  "名称（可选）",
+  "用于壁纸",
+  "用于屏保",
+  "全部",
+  "给每条链接起个名字，再选一个图床或「全部聚合」分别用于壁纸和屏保。增删或改动后立即生效。",
+  "图床",
+  "全部聚合",
+  "编辑",
+  "至少选择一个图床",
+  "设为壁纸"
  ],
-
  "en": [
   "Screensaver",
   "Screensaver",
   "Aerial",
   "Photos",
-  "Clock",
   "Focus Style",
   "High Contrast",
   "Standard",
@@ -673,7 +681,6 @@ const TEXTS = {
   "Report on GitHub",
   "Plays Apple TV’s aerial films, with the place named on screen.",
   "Cycles through the daily photos and yours.",
-  "A big clock over the current wallpaper.",
   "Moving",
   "Aerial films and your own videos. The aerial films always play on Home; your videos start after 10 seconds still and stop on the frame showing at a key.",
   "Bing · Last Week",
@@ -871,15 +878,25 @@ const TEXTS = {
   "The icon library currently covers only some mainstream apps. For apps it does not cover, replace their icons manually.",
   "Replaced icons for {n} apps",
   "Every covered app already uses HD art",
-  "Current Screensaver"
+  "Current Screensaver",
+  "Add link",
+  "A new picture is fetched in turn from these links each time Home comes back; changes apply at once.",
+  "Name (optional)",
+  "For wallpaper",
+  "For screensaver",
+  "All",
+  "Give each link a name, then choose one image host or all aggregated for the wallpaper and for the screensaver. Changes apply at once.",
+  "Image host",
+  "All aggregated",
+  "Edit",
+  "Select at least one image host",
+  "Set as wallpaper"
  ],
-
  "ru": [
   "Заставка",
   "Заставка",
   "Аэросъёмка",
   "Фото",
-  "Часы",
   "Стиль фокуса",
   "Высокий контраст",
   "Стандартный",
@@ -894,7 +911,6 @@ const TEXTS = {
   "Сообщить на GitHub",
   "Воспроизводит аэросъёмку Apple TV, на экране указано место.",
   "Сменяются фото дня и ваши фото.",
-  "Большие часы поверх текущих обоев.",
   "Движущиеся",
   "Аэросъёмка и ваши видео. Аэросъёмка всегда играет на главном экране; ваши видео запускаются через 10 секунд покоя и останавливаются на текущем кадре по кнопке.",
   "Bing · за последнюю неделю",
@@ -1092,15 +1108,25 @@ const TEXTS = {
   "В библиотеке пока есть значки лишь для некоторых популярных приложений. Для остальных замените значки вручную.",
   "Заменены значки у {n} приложений",
   "Все приложения из библиотеки уже используют HD-значки",
-  "Текущая заставка"
+  "Текущая заставка",
+  "Добавить ссылку",
+  "Новая картинка берётся по очереди из этих ссылок при каждом возврате на главный экран; изменения применяются сразу.",
+  "Имя (необязательно)",
+  "Для обоев",
+  "Для заставки",
+  "Все",
+  "Дайте каждой ссылке имя, затем выберите один хост или все вместе для обоев и заставки. Изменения применяются сразу.",
+  "Хост изображений",
+  "Все вместе",
+  "Изменить",
+  "Выберите хотя бы один хост изображений",
+  "Установить как обои"
  ],
-
  "uk": [
   "Заставка",
   "Заставка",
   "Аерозйомка",
   "Фото",
-  "Годинник",
   "Стиль фокуса",
   "Високий контраст",
   "Стандартний",
@@ -1115,7 +1141,6 @@ const TEXTS = {
   "Повідомити на GitHub",
   "Відтворює аерозйомку Apple TV, на екрані вказано місце.",
   "Змінюються фото дня та ваші фото.",
-  "Великий годинник поверх поточних шпалер.",
   "Рухомі",
   "Аерозйомка і ваші відео. Аерозйомка завжди грає на головному екрані; ваші відео запускаються через 10 секунд спокою і зупиняються на поточному кадрі за кнопкою.",
   "Bing · за останній тиждень",
@@ -1313,15 +1338,25 @@ const TEXTS = {
   "У бібліотеці поки що є іконки лише для деяких популярних застосунків. Для решти замініть іконки вручну.",
   "Замінено іконки для {n} застосунків",
   "Усі застосунки з бібліотеки вже використовують HD-іконки",
-  "Поточна заставка"
+  "Поточна заставка",
+  "Додати посилання",
+  "Нове зображення береться по черзі з цих посилань щоразу при поверненні на головний екран; зміни застосовуються одразу.",
+  "Назва (необов'язково)",
+  "Для шпалер",
+  "Для заставки",
+  "Усі",
+  "Дайте кожному посиланню назву, потім виберіть один хост або всі разом для шпалер і заставки. Зміни застосовуються одразу.",
+  "Хост зображень",
+  "Усі разом",
+  "Змінити",
+  "Виберіть принаймні один хост зображень",
+  "Встановити як шпалери"
  ],
-
  "kk": [
   "Экран қорғаушы",
   "Экран қорғаушы",
   "Аэрожиын",
   "Фотолар",
-  "Сағат",
   "Фокус стилі",
   "Жоғары контраст",
   "Стандартты",
@@ -1336,7 +1371,6 @@ const TEXTS = {
   "GitHub-та хабарлау",
   "Apple TV аэрожиынын ойнатады, экранда орын көрсетіледі.",
   "Күннің фотолары мен өз фотоларыңыз кезектеседі.",
-  "Ағымдағы түсқағаз үстіндегі үлкен сағат.",
   "Қозғалмалы",
   "Аэрожиын және өз бейнелеріңіз. Аэрожиын басты экранда әрдайым ойнайды; бейнелеріңіз 10 секунд тыныштықтан кейін басталып, түймені басқанда ағымдағы кадрда тоқтайды.",
   "Bing · соңғы апта",
@@ -1534,7 +1568,19 @@ const TEXTS = {
   "Белгішелер кітапханасында әзірге тек кейбір танымал қолданбалардың белгішелері бар. Қалған қолданбалардың белгішелерін өзіңіз қолмен ауыстырыңыз.",
   "{n} қолданбаның белгішесі ауыстырылды",
   "Кітапханадағы барлық қолданбалар HD белгішелерін қолдануда",
-  "Ағымдағы экран қорғаушы"
+  "Ағымдағы экран қорғаушы",
+  "Сілтеме қосу",
+  "Басты экранға әр оралу сайын осы сілтемелерден кезекпен жаңа сурет алынады; өзгерістер бірден қолданылады.",
+  "Атауы (міндетті емес)",
+  "Тұсқағаз үшін",
+  "Экран сақтауыш үшін",
+  "Барлығы",
+  "Әр сілтемеге атау беріп, тұсқағаз бен экран сақтауыш үшін бір хостты немесе барлығын біріккен таңдаңыз. Өзгерістер бірден қолданылады.",
+  "Сурет хостингі",
+  "Барлығы біріккен",
+  "Өңдеу",
+  "Кемінде бір сурет хостингін таңдаңыз",
+  "Тұсқағаз ретінде орнату"
  ]
 };
 const LANGS = Object.keys(TEXTS);
@@ -1745,8 +1791,175 @@ function card(w) {
     };
     b.querySelector('.pic').appendChild(d);
   }
+  // A single uploaded film (not the "all in turn" card): its delete badge sits on the picture,
+  // like a photo's. Tapping the card offers two choices now — set as wallpaper, or screensaver
+  // loop — instead of setting the wallpaper straight away (the owner, 2026-11-19).
+  if (w.kind === 'video' && w.id.startsWith('video:')) {
+    const vid = w.id.slice(6);
+    const d = el('button', 'badge'); d.innerHTML = ICON.close; d.setAttribute('aria-label', t('aria_delete'));
+    d.onclick = e => {
+      e.stopPropagation();
+      openSheet(body => {
+        const pic = el('div', 'pic'); const img = el('img'); img.src = `${base}thumb/${encodeURIComponent(w.id)}`; pic.appendChild(img); body.appendChild(pic);
+        body.appendChild(el('h3', '', t('confirm_delete')));
+        body.appendChild(el('p', 'meta', w.title));
+        const l = el('div', 'list'); body.appendChild(l);
+        action(l, t('aria_delete'), 'danger', async () => { closeSheet(); try { take(await api('api/videos/delete', { id: vid })); } catch (err) { toast(t('toast_video_bad')); } });
+        const c = el('div', 'list'); body.appendChild(c);
+        action(c, t('cancel'), 'tint', closeSheet).style.fontWeight = '600';
+      });
+    };
+    b.querySelector('.pic').appendChild(d);
+    b.onclick = () => {
+      openSheet(body => {
+        const pic = el('div', 'pic'); const img = el('img'); img.src = `${base}thumb/${encodeURIComponent(w.id)}`; pic.appendChild(img); body.appendChild(pic);
+        body.appendChild(el('h3', '', w.title));
+        const l = el('div', 'list'); body.appendChild(l);
+        action(l, t('set_wallpaper'), 'tint', async () => {
+          closeSheet();
+          if (w.id === state.selected) return;
+          try { take(await api('api/wallpaper', { id: w.id })); toast(t('toast_wallpaper')); } catch (err) { toast(t('toast_set_fail')); }
+        });
+        const looping = (state.saverVideo || '') === vid;
+        action(l, t('saver_loop') + (looping ? ' ↻' : ''), 'tint', async () => {
+          closeSheet();
+          try { take(await api('api/savervideo', { id: looping ? '' : vid })); toast(t('toast_tv_updated')); } catch (err) { toast(t('toast_set_fail')); }
+        });
+        const c = el('div', 'list'); body.appendChild(c);
+        action(c, t('cancel'), 'tint', closeSheet).style.fontWeight = '600';
+      });
+    };
+  }
   return b;
 }
+/* One editor shared by the wallpaper card and the screensaver mode. The list shows only names:
+   edit and delete sit on the row, and any number of hosts can be ticked. "All aggregated" ticks
+   them all. The address is kept in the row's data and shown only in the editor (2026-11-19). */
+const HOST_CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+function hostLabel(h, i) {
+  if (h.name) return h.name;
+  return t('wh_host') + (LANG === 'zh' ? (HOST_CN[i] || String(i + 1)) : ' ' + (i + 1));
+}
+function webhostEditor(use) {
+  const wallpaper = use !== 'saver';
+  const l = el('div');
+  const hosts = Array.isArray(state.webhostHosts) && state.webhostHosts.length
+    ? state.webhostHosts.map(h => ({ name: String(h.name || ''), url: String(h.url || '') }))
+    : (Array.isArray(state.webhostUrls) && state.webhostUrls.length ? state.webhostUrls : [state.webhostUrl || ''])
+        .map(u => ({ name: '', url: u || '' }));
+  const selKey = wallpaper ? 'webhostWallpaperSelected' : 'webhostSaverSelected';
+  let selected = Array.isArray(state[selKey]) && state[selKey].length
+    ? state[selKey].slice() : hosts.map(h => h.url);
+  const rows = el('div', 'list');
+  const circle = on => {
+    const b = el('button', 'wh-circle' + (on ? ' on' : '')); b.type = 'button'; b.innerHTML = ICON.tick;
+    return b;
+  };
+  const readHosts = () => [...rows.querySelectorAll('.host')].map(f => ({
+    name: f.dataset.name || '', url: f.dataset.url || '',
+  })).filter(h => h.url);
+
+  const persist = async (list, sel = selected) => {
+    if (!list.length) { toast(t('toast_webhost_bad')); return false; }
+    try {
+      let next = await api('api/webhost', { hosts: JSON.stringify(list) });
+      next = await api('api/webhostpick', { use: wallpaper ? 'wallpaper' : 'saver', ids: JSON.stringify(sel) });
+      take(next);
+      toast(next.saved ? t('toast_webhost_set') : t('toast_webhost_bad'));
+      return !!next.saved;
+    } catch (err) { toast(t('toast_set_fail')); return false; }
+  };
+  const choose = async ids => {
+    try {
+      const next = await api('api/webhostpick', { use: wallpaper ? 'wallpaper' : 'saver', ids: JSON.stringify(ids) });
+      take(next); toast(t('toast_tv_updated'));
+    } catch (err) { toast(t('toast_set_fail')); }
+  };
+  const toggle = url => {
+    const set = new Set(selected);
+    if (set.has(url)) {
+      if (set.size === 1) { toast(t('wh_need_one')); return; }
+      set.delete(url);
+    } else set.add(url);
+    selected = [...set];
+    choose(selected);
+  };
+
+  // "All aggregated": every host ticked, whatever the individual ticks were.
+  const all = el('button', 'item'); all.type = 'button'; all.setAttribute('role', 'radio');
+  const allOn = hosts.length > 0 && selected.length >= hosts.length;
+  all.setAttribute('aria-checked', allOn ? 'true' : 'false');
+  const allTxt = el('span', 'txt'); allTxt.appendChild(el('span', '', t('wh_all_agg')));
+  all.append(allTxt, circle(allOn));
+  all.onclick = () => { selected = []; choose([]); };
+  rows.appendChild(all);
+
+  const edit = (host, i) => {
+    openSheet(body => {
+      body.appendChild(el('h3', '', host ? t('wh_edit') : t('wh_add')));
+      const f = el('div', 'list'); body.appendChild(f);
+      const nameRow = el('div', 'item field'); const nameIn = el('input');
+      nameIn.type = 'text'; nameIn.value = host ? host.name : ''; nameIn.placeholder = t('wh_name_ph');
+      nameIn.setAttribute('autocomplete', 'off'); nameIn.setAttribute('spellcheck', 'false');
+      nameRow.appendChild(nameIn); f.appendChild(nameRow);
+      const urlRow = el('div', 'item field'); const urlIn = el('input');
+      urlIn.type = 'text'; urlIn.value = host ? host.url : ''; urlIn.placeholder = 'http://192.168.2.7:5678/';
+      urlIn.setAttribute('autocomplete', 'off'); urlIn.setAttribute('autocapitalize', 'off');
+      urlIn.setAttribute('spellcheck', 'false'); urlIn.setAttribute('enterkeyhint', 'done');
+      urlRow.appendChild(urlIn); f.appendChild(urlRow);
+      const acts = el('div', 'list'); body.appendChild(acts);
+      action(acts, t('save'), 'tint', async () => {
+        const name = nameIn.value.trim(), url = urlIn.value.trim();
+        if (!url) { toast(t('toast_webhost_bad')); return; }
+        closeSheet();
+        const list = readHosts();
+        const old = host ? host.url : null;
+        const nextHost = { name, url };
+        if (host) {
+          const at = list.findIndex(h => h.url === old);
+          if (at < 0) list.push(nextHost); else list[at] = nextHost;
+        } else list.push(nextHost);
+        const nextSel = old && old !== url ? selected.map(u => u === old ? url : u) : selected;
+        selected = nextSel;
+        await persist(list, nextSel);
+      });
+      const cancelList = el('div', 'list'); body.appendChild(cancelList);
+      action(cancelList, t('cancel'), 'tint', closeSheet).style.fontWeight = '600';
+    });
+  };
+  const row = (h, i) => {
+    const f = el('div', 'item host'); f.dataset.url = h.url; f.dataset.name = h.name;
+    f.appendChild(el('span', 'wh-label', hostLabel(h, i)));
+    const ed = el('button', 'link', t('wh_edit')); ed.type = 'button'; ed.onclick = () => edit(h, i);
+    const del = el('button', 'link', t('aria_delete')); del.type = 'button';
+    del.style.color = 'var(--danger)';
+    del.onclick = () => {
+      f.remove();
+      const remain = readHosts();
+      if (!remain.length) { toast(t('toast_webhost_bad')); rows.appendChild(f); return; }
+      selected = selected.filter(u => u !== h.url);
+      if (!selected.length) selected = [remain[0].url];
+      persist(remain, selected);
+    };
+    const tick = circle(selected.includes(h.url));
+    tick.setAttribute('aria-label', hostLabel(h, i));
+    tick.onclick = () => toggle(h.url);
+    f.append(ed, del, tick);
+    rows.appendChild(f);
+  };
+  hosts.forEach(row);
+  l.appendChild(el('p', 'foot', wallpaper ? t('wh_wp') : t('wh_ss')));
+  l.appendChild(rows);
+  // Every edit saves itself, so a separate Save button would only repeat the last write (the
+  // owner, 2026-11-19). Add uses the same row style as the videos' add button.
+  const addWrap = el('div', 'list'); addWrap.style.marginTop = '10px';
+  const add = el('button', 'item tint center', t('wh_add')); add.type = 'button';
+  add.onclick = () => edit(null, hosts.length);
+  addWrap.appendChild(add);
+  l.append(addWrap, el('p', 'foot', t('wh_urls_hint')));
+  return l;
+}
+
 function renderWallpapers() {
   $('#heroImg').src = `${base}thumb/${encodeURIComponent(state.selected)}`;
   $('#heroTitle').textContent = titleOf(state.selected);
@@ -1770,47 +1983,42 @@ function renderWallpapers() {
     if (kind === 'live' && list.filter(w => w.kind === 'video').length < 3 && state.selected !== 'videos:mine') list = list.filter(w => w.id !== 'videos:mine');
     if (!list.length && kind !== 'photo') continue;
     root.appendChild(el('h2', 'big', title));
+    // The add row is built here but placed under the photos, in the videos' style (2026-11-19).
+    let photoUpload = null;
     if (kind === 'photo') {
-      const up = el('label', 'btn add');
-      up.innerHTML = `${ICON.plus}<span id="uploadLabel"></span><input id="file" type="file" accept="image/*" multiple hidden>`;
+      if (!list.length) root.appendChild(el('p', 'empty', t('empty_photos')));
+      photoUpload = el('div', 'list'); photoUpload.style.marginTop = '10px';
+      const up = el('label', 'item tint center');
+      up.innerHTML = `<span id="uploadLabel"></span><input id="file" type="file" accept="image/*" multiple hidden>`;
       up.querySelector('span').textContent = uploading ? t('sending_n', { n: uploading }) : t('upload_label');
       if (uploading) up.setAttribute('disabled', '');
       up.querySelector('input').onchange = uploadPhotos;
-      root.appendChild(up);
-      if (!list.length) { root.appendChild(el('p', 'empty', t('empty_photos'))); continue; }
+      photoUpload.appendChild(up);
     }
     const g = el('div', 'grid');
     list.forEach(w => g.appendChild(card(w)));
-    root.appendChild(g);
+    if (list.length) root.appendChild(g);
+    if (photoUpload) root.appendChild(photoUpload);
+    if (kind === 'live') {
+      // Add-videos and the room hint moved here from the old list under Screensaver (2026-11-19).
+      const vup = el('div', 'list'); vup.style.marginTop = '10px';
+      const up = el('label', 'item tint center'); up.id = 'videoUploadBtn';
+      up.innerHTML = `<span id="videoUploadLabel"></span><input id="videoFile" type="file" accept=".mp4,.mov,video/mp4,video/quicktime" multiple hidden>`;
+      up.querySelector('span').textContent = sendingVideo || t('videos_upload');
+      if (sendingVideo) { up.setAttribute('disabled', ''); up.querySelector('input').disabled = true; }
+      up.querySelector('input').onchange = e => sendVideos([...e.target.files]);
+      vup.appendChild(up); root.appendChild(vup);
+      root.appendChild(el('p', 'foot', t('videos_hint', { room: ((state.videoRoom || 0) / 1e9).toFixed(1) })));
+    }
+    if (kind === 'photo' && !list.length) continue;
     // Only while "Follow Tile" is selected: the first row's tiles, right under its card.
     if (kind === 'perapp' && state.selected === 'perapp') {
       const perApp = perAppList();
       if (perApp) { root.appendChild(perApp); root.appendChild(el('p', 'foot', t('per_app_hint'))); }
     }
-    // The picture host's address only while that card is the chosen wallpaper (the owner, 2026-11-13).
-    if (kind === 'perapp' && state.selected === 'webhost') {
-      const l = el('div', 'list');
-      const f = el('form', 'item field');
-      const inp = el('input'); inp.type = 'text'; inp.id = 'webhostUrl'; inp.value = state.webhostUrl || '';
-      inp.placeholder = 'http://192.168.2.7:5678/';
-      inp.setAttribute('autocomplete', 'off'); inp.setAttribute('autocapitalize', 'off');
-      inp.setAttribute('spellcheck', 'false'); inp.setAttribute('enterkeyhint', 'done');
-      const btn = el('button', 'link', t('set')); btn.type = 'submit';
-      f.append(inp, btn);
-      f.onsubmit = async e => {
-        e.preventDefault();
-        const url = inp.value.trim(); if (!url) return;
-        btn.disabled = true; inp.blur();
-        try {
-          const next = await api('api/webhost', { url });
-          take(next);
-          toast(next.saved ? t('toast_webhost_set') : t('toast_webhost_bad'));
-        } catch (err) { toast(t('toast_set_fail')); }
-        btn.disabled = false;
-      };
-      l.appendChild(f); root.appendChild(l);
-      root.appendChild(el('p', 'foot', t('wh_url_hint')));
-    }
+    // Named links with a use for each, only while that card is the chosen wallpaper (the owner,
+    // 2026-11-13; names and uses, 2026-11-19). The screensaver has the same editor below.
+    if (kind === 'perapp' && state.selected === 'webhost') root.appendChild(webhostEditor('wallpaper'));
     if (sub) root.appendChild(el('p', 'foot', sub));
     // The owner's videos play all the time, as on the TV: no "when still" to choose (2026-11-04).
     if (kind === 'photo' && list.length === 1) root.appendChild(el('p', 'foot', t('add_second')));
@@ -1834,10 +2042,9 @@ async function sendPhotos(files) {
 }
 
 /* The second hero: which screensaver is on now, with a picture of what it shows.
-   Clock, flip clock and the TV's own screensaver have no picture, so they get a drawing;
+   The flip clock and the TV's own screensaver have no picture, so they get a drawing;
    a missing film or an image host that cannot be reached falls back to the same art. */
 const SAVER_ART = {
-  clock: '<circle cx="320" cy="168" r="84" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="6"/><path d="M320 168v-54M320 168l44 26" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"/>',
   flipclock: '<g fill="#fff" fill-opacity=".9" font-family="Arial,sans-serif" font-size="104" font-weight="700" text-anchor="middle"><text x="248" y="224">12</text><text x="416" y="224">34</text></g><path d="M332 118v122" stroke="#fff" stroke-opacity=".28" stroke-width="4"/>',
   system: '<rect x="206" y="96" width="228" height="146" rx="14" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="7"/><path d="M282 270h76M320 242v28" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="7" stroke-linecap="round"/>',
   none: '<path d="M118 250l98-104 68 74 62-52 108 82z" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="6" stroke-linejoin="round"/><circle cx="406" cy="128" r="21" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="6"/>'
@@ -1852,7 +2059,7 @@ function saverPreviewId(mode) {
     case 'photos': return state.rotatePhotos || 'photos:rotate';
     case 'videos': return state.saverVideo ? 'video:' + state.saverVideo : 'videos:mine';
     case 'webhost': return 'webhost';
-    default: return ''; // clock / flipclock / system are drawn, not fetched
+    default: return ''; // flipclock / system are drawn, not fetched
   }
 }
 function renderSaverHero() {
@@ -1876,38 +2083,18 @@ function renderScreensaver() {
   // "System" is now an ordinary choice here, so the old TV-side hint no longer applies.
   $('#ssFoot').textContent = state.screensaverFollows ? t('hint_follows') : '';
   $('#ssFoot').hidden = !$('#ssFoot').textContent;
-  // The time only over the aerial and photo screensavers; the clock one is its clock.
+  // The same named links, with a tick for each use, while the image host is the screensaver.
+  const hostBox = $('#ssHosts'); hostBox.replaceChildren();
+  if (state.screensaver === 'webhost') hostBox.appendChild(webhostEditor('saver'));
+  // The time only over the aerial and photo screensavers.
   $('#ssTimeBox').hidden = state.screensaver !== 'aerial' && state.screensaver !== 'photos';
   $('#swSaverTime').checked = !!state.screensaverClock;
   $('#swSaverPlace').checked = state.screensaverCaption !== false;
-  const list = $('#videoList'); list.replaceChildren();
-  const videos = state.videos || [];
-  if (!videos.length) { const row = el('div', 'item'); row.appendChild(el('span', 'txt', t('videos_empty'))).style.color = 'var(--secondary)'; list.appendChild(row); }
-  for (const video of videos) {
-    const row = el('div', 'item');
-    const looping = (state.saverVideo || '') === video.id;
-    row.appendChild(el('span', 'txt', (looping ? '↻ ' : '') + video.name));
-    const loop = el('button', 'link', t('saver_loop')); loop.style.color = 'var(--tint)';
-    loop.onclick = async () => {
-      try { take(await api('api/savervideo', { id: looping ? '' : video.id })); toast(t('toast_tv_updated')); } catch (e) { toast(t('toast_set_fail')); }
-    };
-    row.appendChild(loop);
-    const del = el('button', 'link', t('aria_delete')); del.style.color = 'var(--danger)';
-    del.onclick = async () => {
-      if (!confirm(t('confirm_video_delete', { name: video.name }))) return;
-      del.disabled = true;
-      try { take(await api('api/videos/delete', { id: video.id })); } catch (err) { del.disabled = false; toast(t('toast_video_bad')); }
-    };
-    row.appendChild(del); list.appendChild(row);
-  }
-  $('#videoUploadLabel').textContent = sendingVideo || t('videos_upload');
-  $('[data-i18n="videos_hint"]').textContent = t('videos_hint', { room: ((state.videoRoom || 0) / 1e9).toFixed(1) });
 }
 document.querySelectorAll('#ss [data-mode]').forEach(b => b.onclick = async () => {
   if (b.dataset.mode === state.screensaver && !state.screensaverFollows) return;
   try { take(await api('api/screensaver', { mode: b.dataset.mode })); toast(t('toast_tv_updated')); } catch (e) { toast(t('toast_set_fail')); }
 });
-$('#videoFile').onchange = e => sendVideos([...e.target.files]);
 async function sendVideos(files) {
   const input = $('#videoFile'); if (!files.length || input.disabled) return;
   const btn = $('#videoUploadBtn');

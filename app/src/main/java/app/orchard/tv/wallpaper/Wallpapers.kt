@@ -49,9 +49,15 @@ data class Wallpaper(
     val caption: String? = null,
 )
 
+/** One of the owner's links: its address and its name. Which one feeds what is chosen separately. */
+data class WebHost(
+    val name: String,
+    val url: String,
+)
+
 /** System: none of Aerial's; the TV's own screensaver starts as the firmware has it (SystemScreensaver). */
 enum class ScreensaverMode(val key: String) {
-    Aerial("aerial"), Photos("photos"), Clock("clock"), FlipClock("flipclock"), Videos("videos"), Webhost("webhost"), System("system");
+    FlipClock("flipclock"), Aerial("aerial"), Videos("videos"), Photos("photos"), Webhost("webhost"), System("system");
 
     companion object {
         fun of(key: String?) = entries.firstOrNull { it.key == key } ?: Aerial
@@ -831,27 +837,33 @@ object Wallpapers {
         null
     }
 
-    /** One picture from the owner's server. Its id is a fresh name, never one already in the ring. */
+    /** One picture from one of the owner's servers. Its id is fresh, never one already in the ring. */
     private suspend fun fetchWebHostPicture(): RollingPool.Entry? = withContext(Dispatchers.IO) {
+        val (urls, start) = webHostRound(wallpaper = true)
         val id = "w" + System.nanoTime().toString()
         val part = File(app.cacheDir, "webhost-pool.part")
-        val url = webHostUrl()
-        val ok = runCatching {
-            val c = URL(url).openConnection() as HttpURLConnection
-            c.connectTimeout = 5_000
-            c.readTimeout = 20_000
-            c.instanceFollowRedirects = true
-            try {
-                check(c.responseCode in 200..299) { "HTTP ${c.responseCode}" }
-                c.inputStream.use { input -> part.outputStream().use { input.copyTo(it) } }
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(part.path, bounds)
-                check(bounds.outWidth > 0) { "not a picture" }
-                check(part.renameTo(webhostPool.fileFor(id))) { "could not keep it" }
-            } finally { c.disconnect() }
-            true
-        }.getOrDefault(false)
-        if (!ok) { part.delete(); null } else RollingPool.Entry(id)
+        // A link that is down must not leave the ring empty: try the rest in turn this pass.
+        for (k in urls.indices) {
+            val url = urls[(start + k) % urls.size]
+            val ok = runCatching {
+                val c = URL(url).openConnection() as HttpURLConnection
+                c.connectTimeout = 5_000
+                c.readTimeout = 20_000
+                c.instanceFollowRedirects = true
+                try {
+                    check(c.responseCode in 200..299) { "HTTP ${c.responseCode}" }
+                    c.inputStream.use { input -> part.outputStream().use { input.copyTo(it) } }
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(part.path, bounds)
+                    check(bounds.outWidth > 0) { "not a picture" }
+                    check(part.renameTo(webhostPool.fileFor(id))) { "could not keep it" }
+                } finally { c.disconnect() }
+                true
+            }.getOrDefault(false)
+            if (ok) return@withContext RollingPool.Entry(id)
+            part.delete()
+        }
+        null
     }
 
     /**
@@ -926,21 +938,183 @@ object Wallpapers {
     /** Whether the wallpaper or any tile shows the image host's picture. */
     private fun webhostWanted() = selectedId == WEBHOST || perApp.containsValue(WEBHOST)
 
-    /** The address the picture comes from: the owner's, or the one shipped with the build. */
-    fun webHostUrl(): String = prefs.getString("webhost_url", null)?.takeIf { it.isNotBlank() } ?: WEBHOST_URL
+    /**
+     * Every link the owner added, in order, with its name. Older builds kept a bare list (before
+     * that, one address); read those when there is no host list so an upgrade loses nothing.
+     */
+    fun webHosts(): List<WebHost> {
+        val stored = prefs.getString("webhost_hosts", null)
+        if (!stored.isNullOrBlank()) {
+            val parsed = runCatching {
+                val arr = JSONArray(stored)
+                (0 until arr.length()).mapNotNull { i ->
+                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val url = normalizeHost(o.optString("url")) ?: return@mapNotNull null
+                    WebHost(name = o.optString("name"), url = url)
+                }
+            }.getOrDefault(emptyList())
+            if (parsed.isNotEmpty()) return parsed.distinctBy { it.url }
+        }
+        // The single address and the old string list are read the way webHostUrls() always did.
+        return legacyWebHostUrls().map { WebHost(name = "", url = it) }
+    }
+
+    private fun legacyWebHostUrls(): List<String> {
+        val stored = prefs.getString("webhost_urls", null)
+        if (!stored.isNullOrBlank()) {
+            val parsed = runCatching {
+                val arr = JSONArray(stored)
+                (0 until arr.length()).mapNotNull { i -> normalizeHost(arr.getString(i)) }
+            }.getOrDefault(emptyList())
+            if (parsed.isNotEmpty()) return parsed.distinct()
+        }
+        val old = prefs.getString("webhost_url", null)?.takeIf { it.isNotBlank() }?.let { normalizeHost(it) }
+        return listOf(old ?: WEBHOST_URL)
+    }
+
+    /** Every address, regardless of use — for the phone page's editor and the diagnostics. */
+    fun webHostUrls(): List<String> = webHosts().map { it.url }
+
+    /** The first address, for the few callers that only need one. */
+    fun webHostUrl(): String = webHosts().first().url
+
+    /** The hosts ticked for one use, saved as addresses. Empty means "all aggregated". */
+    private fun selKey(wallpaper: Boolean) =
+        if (wallpaper) "webhost_sel_wallpaper" else "webhost_sel_saver"
+    /** Kept readable by older phone pages and builds that only know one address. */
+    private fun pickKey(wallpaper: Boolean) =
+        if (wallpaper) "webhost_pick_wallpaper" else "webhost_pick_saver"
+
+    /** The links feeding one use; one, several, or all of them (the owner, 2026-11-19). */
+    fun webHostSelected(wallpaper: Boolean): Set<String> {
+        val all = webHosts().map { it.url }.toSet()
+        val stored = prefs.getString(selKey(wallpaper), null)
+        if (stored != null) {
+            val picked = runCatching {
+                val arr = JSONArray(stored)
+                (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }.toSet()
+            }.getOrDefault(emptySet())
+            return if (picked.isEmpty() || picked.containsAll(all)) all else picked.intersect(all).ifEmpty { all }
+        }
+        // Earlier builds kept a single pick; carry it over. Older still ticked each host for
+        // each use — carry over every tick, or all aggregated when none (or all) was ticked.
+        val one = prefs.getString(pickKey(wallpaper), null)
+        if (one != null) {
+            if (one.isEmpty() || all.size <= 1) return all
+            return setOf(one).intersect(all).ifEmpty { all }
+        }
+        val raw = prefs.getString("webhost_hosts", null) ?: return all
+        val arr = runCatching { JSONArray(raw) }.getOrNull() ?: return all
+        val key = if (wallpaper) "wallpaper" else "saver"
+        val rows = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+        val on = rows.filter { it.optBoolean(key, true) }.map { it.optString("url") }.toSet().intersect(all)
+        return if (on.isEmpty() || on.size == all.size) all else on
+    }
+
+    /** Tick any number of hosts for a use; an empty set (or all of them) aggregates every host. */
+    fun setWebHostSelected(wallpaper: Boolean, urls: Collection<String>): Boolean {
+        val all = webHosts().map { it.url }
+        val picked = urls.mapNotNull { normalizeHost(it) }.distinct()
+        if (picked.any { it !in all }) return false
+        val aggregate = picked.isEmpty() || picked.size == all.size
+        prefs.edit {
+            putString(selKey(wallpaper), if (aggregate) "" else JSONArray(picked).toString())
+            putString(pickKey(wallpaper), if (picked.size == 1) picked.first() else "")
+        }
+        if (wallpaper) {
+            webHostWallpaperCursor.set(0)
+            webhostPool.clear()
+            webhostPool.ensure()
+            if (webhostWanted()) refreshWebHost(force = true)
+        } else {
+            webHostSaverCursor.set(0)
+        }
+        return true
+    }
+
+    /** Still offered to callers that only pick one address. */
+    fun webHostPick(wallpaper: Boolean): String =
+        webHostSelected(wallpaper).singleOrNull() ?: ""
+
+    fun setWebHostPick(wallpaper: Boolean, url: String): Boolean =
+        setWebHostSelected(wallpaper, listOfNotNull(url.takeIf { it.isNotBlank() }))
+
+    /** The ticked links, in the owner's order: one, several, or all of them in turn. */
+    private fun hostsFor(wallpaper: Boolean): List<WebHost> {
+        val all = webHosts()
+        val picked = webHostSelected(wallpaper)
+        val feeding = all.filter { it.url in picked }
+        return feeding.ifEmpty { all }
+    }
+
+    /** The address a wallpaper fetch starts from; each link takes its turn (2026-11-19). */
+    private val webHostWallpaperCursor = java.util.concurrent.atomic.AtomicInteger(0)
+    /** The screensaver keeps its own turn, so it need not follow the card previews. */
+    private val webHostSaverCursor = java.util.concurrent.atomic.AtomicInteger(0)
+
+    private fun webHostRound(wallpaper: Boolean): Pair<List<String>, Int> {
+        val urls = hostsFor(wallpaper).map { it.url }
+        val cursor = if (wallpaper) webHostWallpaperCursor else webHostSaverCursor
+        return urls to Math.floorMod(cursor.getAndIncrement(), urls.size)
+    }
+
+    /** Kept for callers that do not say which use: the wallpaper's turn. */
+    fun nextWebHostUrl(): String = nextWebHostWallpaperUrl()
+
+    fun nextWebHostWallpaperUrl(): String {
+        val (urls, start) = webHostRound(wallpaper = true)
+        return urls[start]
+    }
+
+    fun nextWebHostSaverUrl(): String {
+        val (urls, start) = webHostRound(wallpaper = false)
+        return urls[start]
+    }
 
     /**
-     * Points the image host somewhere else (the owner may change servers, 2026-11-04). The ring
-     * starts again from the new address: none of the old host's pictures may be dealt as its.
+     * Replaces all the links (the owner may add, name, or retarget them, 2026-11-19). Both turns
+     * start again from the new set; none of the old hosts' pictures may be dealt as these.
      */
-    fun setWebHostUrl(url: String): Boolean {
-        val clean = normalizeHost(url) ?: return false
-        prefs.edit { putString("webhost_url", clean) }
-        DiagLog.i("image host set to $clean")
+    fun setWebHosts(hosts: List<WebHost>): Boolean {
+        val clean = hosts.mapNotNull { h ->
+            normalizeHost(h.url)?.let { h.copy(name = h.name.trim(), url = it) }
+        }.distinctBy { it.url }
+        if (clean.isEmpty()) return false
+        val arr = JSONArray()
+        clean.forEach { h -> arr.put(JSONObject().put("name", h.name).put("url", h.url)) }
+        // Read both selections before overwriting the old JSON, so a legacy tick survives. A
+        // retargeted link keeps its tick by its place in the list; a removed one falls back to all.
+        val oldHosts = webHosts()
+        val selections = listOf(webHostSelected(true), webHostSelected(false))
+        val kept = selections.map { sel ->
+            val positions = oldHosts.mapIndexedNotNull { i, h -> if (h.url in sel) i else null }
+            positions.mapNotNull { clean.getOrNull(it)?.url }.toSet()
+        }
+        prefs.edit {
+            putString("webhost_hosts", arr.toString())
+            listOf(true, false).forEachIndexed { i, wp ->
+                val urls = kept[i]
+                putString(selKey(wp), if (urls.isEmpty() || urls.size == clean.size) "" else JSONArray(urls).toString())
+                putString(pickKey(wp), urls.singleOrNull().orEmpty())
+            }
+            // Old builds still read a bare list and the single address, so keep both up to date.
+            putString("webhost_urls", JSONArray(clean.map { it.url }).toString())
+            putString("webhost_url", clean.first().url)
+        }
+        webHostWallpaperCursor.set(0)
+        webHostSaverCursor.set(0)
+        DiagLog.i("image hosts set to ${clean.joinToString(", ") { it.url }}")
         webhostPool.clear()
         webhostPool.ensure()
         return true
     }
+
+    /** Kept for callers that set addresses only: they feed both uses and have no name. */
+    fun setWebHostUrls(urls: List<String>): Boolean =
+        setWebHosts(urls.map { WebHost(name = "", url = it) })
+
+    /** Kept for callers that set one address; it now replaces the whole set. */
+    fun setWebHostUrl(url: String): Boolean = setWebHostUrls(listOf(url))
 
     /** "192.168.2.7:5678" or "http://host/path" as a URL; null when it cannot be one. */
     private fun normalizeHost(raw: String): String? {
@@ -1035,7 +1209,7 @@ object Wallpapers {
         if (now - webhostPreviewAt < WEBHOST_PREVIEW_TRY_MS) return null
         webhostPreviewAt = now
         return runCatching {
-            val c = URL(webHostUrl()).openConnection() as HttpURLConnection
+            val c = URL(nextWebHostWallpaperUrl()).openConnection() as HttpURLConnection
             c.connectTimeout = 3_000
             c.readTimeout = 8_000
             c.instanceFollowRedirects = true

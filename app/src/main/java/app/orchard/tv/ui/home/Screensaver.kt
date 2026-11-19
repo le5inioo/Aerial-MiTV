@@ -141,7 +141,7 @@ fun Screensaver(visible: Boolean, apps: List<AppEntry>, now: LocalDateTime, skip
                     },
                 )
                 ScreensaverMode.Photos -> PhotoSaver(now, skips.steps, remember { Wallpapers.screensaverPicture() })
-                ScreensaverMode.Clock, ScreensaverMode.System -> ClockSaver(apps, now)
+                ScreensaverMode.System -> ClockSaver(apps, now)
                 ScreensaverMode.FlipClock -> FlipClockSaver()
                 ScreensaverMode.Webhost -> if (hostFailed) PhotoSaver(now, skips.steps) else WebHostSaver(
                     now, skips.steps, onUnavailable = { hostFailed = true },
@@ -167,7 +167,7 @@ class ScreensaverSkips {
     /** True if the screensaver took [event], both its down and its up. The clocks have nothing to step through. */
     fun onKey(event: KeyEvent): Boolean {
         if (event.keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false
-        if (Wallpapers.screensaver == ScreensaverMode.Clock || Wallpapers.screensaver == ScreensaverMode.FlipClock) return false
+        if (Wallpapers.screensaver == ScreensaverMode.FlipClock) return false
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) flow.tryEmit(1)
         return true
     }
@@ -671,7 +671,7 @@ private fun WebHostSaver(now: LocalDateTime, steps: SharedFlow<Int>, onUnavailab
     var round by remember { mutableIntStateOf(0) }
     var failures by remember { mutableIntStateOf(0) }
     LaunchedEffect(round) {
-        val next = withContext(Dispatchers.IO) { fetchHostPicture(Wallpapers.webHostUrl()) }
+        val next = withContext(Dispatchers.IO) { fetchHostPicture(Wallpapers.nextWebHostSaverUrl()) }
         if (next != null) {
             picture = next
             failures = 0
