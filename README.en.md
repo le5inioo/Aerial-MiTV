@@ -4,10 +4,7 @@ Launcher for the Xiaomi TV S65 Mini LED (MiTV-MFTR0), forked from [Aerial](https
 
 ## Features
 
-- One wallpaper per tile: focus swaps the picture, remembered by slot index
-- Video wallpapers loop muted and freeze on a key press; screensaver: flip clock / aerial / video / photos / image host / system
-- Image host with multiple named links; wallpaper and screensaver pick hosts separately, or aggregate them
-- Five languages, playback speed, auto-brightness, ADB restored at boot
+Tile wallpapers · video wallpapers · personal image host · screensaver · five languages
 
 ## Install
 
