@@ -21,7 +21,10 @@ import kotlinx.coroutines.launch
 
 /**
  * Options set from a computer over ADB, e.g.
- *   adb shell am broadcast -a app.orchard.tv.CONFIG -n app.orchard.tv/.guard.ConfigReceiver --ez keep_adb true
+ *   adb shell am broadcast -a app.orchard.tv.CONFIG -n com.ts.launcher/app.orchard.tv.guard.ConfigReceiver --ez keep_adb true
+ * Spell the receiver's class out: it lives in the code namespace (app.orchard.tv), while the
+ * applicationId on the Xiaomi builds is com.ts.launcher, so the short ".guard.ConfigReceiver"
+ * resolves to a class that is not there and the broadcast is silently dropped.
  *   ... --ez own_screensaver true   (keep Aerial as the system screensaver; see GuardSetup)
  *   ... --ez guard_off_in_standby true  (Home Guard leaves at screen off, back at screen on;
  *                                   for TVs that do not wake with it enabled, issue #371)
@@ -34,6 +37,9 @@ import kotlinx.coroutines.launch
  *   ... --ez large_clock true --ez clock_right false --ez one_row_home true
  *       --ez peek_next_row false --ez home_plate true --ez show_all_names false --ei home_columns 6
  *                                   (Home's layout, as in Personalize; for screenshots of each)
+ *   ... --ez screensaver_clock false --ez screensaver_caption false
+ *                                   (the time and the place name over the aerial and photo
+ *                                   screensavers, as in Personalize; past the parental PIN, as ADB is)
  *   ... --ei preview_apps 3         (Home shows only its first 3 tiles until Aerial restarts, or 0;
  *                                   nothing is saved, for trying a nearly empty Home)
  *   ... --ez check_update true      (look for a new version now, not within three hours)
@@ -92,7 +98,15 @@ class ConfigReceiver : BroadcastReceiver() {
                 if (!HisenseSources.open(context, source.intent)) context.startActivity(source.intent)
                 "open_source: ${source.label} -> ${source.intent.component?.flattenToShortString() ?: source.intent.data}" +
                     (source.xiaomiInput?.let { " input=$it" } ?: "")
-            }.getOrElse { "open_source: ${it.javaClass.simpleName} ${it.message}" }
+            }.getOrElse {
+                // As the tile does when nothing answers the passthrough intent: the TV's own picker
+                // (XGIMI DOHKO, Android 14: the tile switched, this said ActivityNotFoundException;
+                // issue #1483, the reporter's selftest).
+                if (it is android.content.ActivityNotFoundException && source.intent.data?.host == "android.media.tv" &&
+                    SystemProbe.openInputPicker(context)
+                ) "open_source: ${source.label} -> the TV's input picker (nothing answers ${source.intent.data})"
+                else "open_source: ${it.javaClass.simpleName} ${it.message}"
+            }
             return
         }
         if (intent.getBooleanExtra("clear_pin", false)) {
@@ -121,6 +135,8 @@ class ConfigReceiver : BroadcastReceiver() {
             "peek_next_row" to AerialSettings::choosePeekNextRow,
             "home_plate" to AerialSettings::chooseHomePlate,
             "show_all_names" to AerialSettings::chooseShowAllNames,
+            "screensaver_clock" to AerialSettings::chooseScreensaverClock,
+            "screensaver_caption" to AerialSettings::chooseScreensaverCaption,
         ).filterKeys { intent.hasExtra(it) }
         if (layout.isNotEmpty()) {
             AerialSettings.init(context)

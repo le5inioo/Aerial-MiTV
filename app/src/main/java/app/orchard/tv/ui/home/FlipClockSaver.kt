@@ -38,22 +38,18 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.orchard.tv.R
 import app.orchard.tv.settings.AerialSettings
+import app.orchard.tv.ui.theme.FlipDigits
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.time.LocalDateTime
+import java.time.ZoneOffset
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -70,7 +66,7 @@ import kotlin.math.sin
 /** One top-fall-plus-bottom-rise cycle, in milliseconds. */
 private const val FLIP_MS = 460
 
-/** Bahnschrift's digit cap height as a fraction of the font size, measured from the face itself. */
+/** The digit cap height as a fraction of the font size, measured from the face itself. */
 private const val CAP_HEIGHT = 0.729f
 
 // Dark charcoal cards with a faint light-to-dark gradient (shade toward the hinge) and pale
@@ -87,32 +83,29 @@ private val CardCorner = 12.dp
 private val CardW = 110.dp
 private val CardH = 156.dp
 
-// Bahnschrift Bold (DIN 1451 style), the user's pick. It is a Microsoft-bundled variable font, so
-// res/font/bahnschrift.ttf is git-ignored and only ever packed into local APK builds; the variable
-// weight axis tops out at 700, which is its heaviest cut. At 154sp the digit stands 72% of the
+// Flip Digits Bold, the digit-only subset of Bahnschrift (Theme.FlipDigits, see Theme). Home's
+// large clock uses the TV's default face instead. At 154sp the digit stands 72% of the
 // card's height, the proportion picked from the previews.
-@OptIn(ExperimentalTextApi::class)
 private val FlipDigitStyle = TextStyle(
-    fontFamily = FontFamily(
-        Font(
-            R.font.bahnschrift, weight = FontWeight.Bold,
-            variationSettings = FontVariation.Settings(FontVariation.weight(700)),
-        )
-    ),
+    fontFamily = FlipDigits,
     fontSize = 154.sp, color = DigitInk, letterSpacing = 0.sp, textAlign = TextAlign.Center,
     shadow = Shadow(DigitShadow, Offset(0f, 4f), blurRadius = 14f),
 )
 
 @Composable
-internal fun FlipClockSaver(initial: LocalDateTime) {
-    val now by rememberSecondly(initial)
+internal fun FlipClockSaver() {
+    val now by rememberSecondly()
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
         // A slow drift, not a spot per minute: the clock creeps a fraction of a pixel a second
         // along a Lissajous curve, so card edges never sit on one pixel group for hours, and the
-        // minute flip does not make the whole clock lurch to a new offset.
-        val secs = now.toLocalTime().toSecondOfDay().toFloat()
-        val dx = 16.dp * sin(secs * (2f * PI.toFloat() / 620f))
-        val dy = 11.dp * sin(secs * (2f * PI.toFloat() / 860f) + 1.1f)
+        // minute flip does not make the whole clock lurch to a new offset. The phase counts the
+        // clock's absolute seconds rather than the time of day: the time of day wrapped at
+        // midnight and the whole clock jumped, and seeding the drift from Home's minute-old tick
+        // (seconds always zero) left it a few pixels off, to snap into place once the real second
+        // arrived — that snap is what read as the cards shifting as the screensaver came up.
+        val t = now.toEpochSecond(ZoneOffset.UTC).toDouble()
+        val dx = 16.dp * sin(t * (2.0 * PI / 620.0)).toFloat()
+        val dy = 11.dp * sin(t * (2.0 * PI / 860.0) + 1.1).toFloat()
         Row(
             Modifier.offset(dx, dy),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -131,10 +124,15 @@ internal fun FlipClockSaver(initial: LocalDateTime) {
     }
 }
 
-/** The time, fresh every second: Home's `now` only ticks on the minute, and the flip clock shows seconds. */
+/**
+ * The time, fresh every second: Home's `now` only ticks on the minute, and the flip clock shows
+ * seconds. Seeded from the clock itself, not from Home's tick: a minute-old seed showed the wrong
+ * digits (and the wrong drift offset) for the first instant, and the cards flipped and jumped to
+ * catch up as the screensaver faded in.
+ */
 @Composable
-private fun rememberSecondly(initial: LocalDateTime): State<LocalDateTime> {
-    val now = remember { mutableStateOf(initial) }
+private fun rememberSecondly(): State<LocalDateTime> {
+    val now = remember { mutableStateOf(LocalDateTime.now()) }
     LaunchedEffect(Unit) {
         while (isActive) {
             delay(200)

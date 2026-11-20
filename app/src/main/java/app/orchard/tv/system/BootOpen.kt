@@ -2,7 +2,9 @@ package app.orchard.tv.system
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
 import android.os.PowerManager
+import android.os.Process
 import android.os.SystemClock
 import androidx.core.content.edit
 import androidx.core.content.getSystemService
@@ -18,27 +20,56 @@ object BootOpen {
     private const val PREFS = "system"
     private const val OPENED_ELAPSED = "boot_open_elapsed"
     private const val OPENED_BOOT = "boot_open_boot"
+    private const val OPENED_BOOT_ID = "boot_open_boot_id"
     private const val SCREEN_OFF_ELAPSED = "screen_off_elapsed"
     private const val SCREEN_OFF_BOOT = "screen_off_boot"
+    private const val SCREEN_OFF_BOOT_ID = "screen_off_boot_id"
     private const val OPENED_ASLEEP = "boot_open_asleep"
     private const val WAKE_ARMED_ELAPSED = "wake_splash_armed"
     private const val WAKE_ARMED_BOOT = "wake_splash_armed_boot"
+    private const val AWAKE_ASLEEP = "awake_asleep"
+    private const val AWAKE_ASLEEP_BOOT = "awake_asleep_boot"
     private const val HOME_ELAPSED = "home_key_elapsed"
     private const val HOME_BOOT = "home_key_boot"
+    private const val HOME_BOOT_ID = "home_key_boot_id"
+
+    /**
+     * The kernel's name for this boot. TVs without a clock battery start at 1970 and set the wall
+     * clock from the network a while in, so a time saved before that names that boot by 0 — the
+     * same 0 as the boot after it, which read as this boot (JMGO S60, Android 5.1: the boot source
+     * was skipped as "already opened"). A process cannot outlive its boot, so this is read once.
+     */
+    internal val BOOT_ID: String? by lazy {
+        runCatching { java.io.File("/proc/sys/kernel/random/boot_id").readText().trim() }
+            .getOrNull()?.takeIf { it.isNotEmpty() }
+    }
+
+    // Written at once (commit), not later: Xiaomi MiTV-MFTR0 (Android 14) force-stops Aerial 1.3 s
+    // after the screen goes off, before apply() had saved the screen-off, so the wake after it took
+    // what the TV starts on for opened already and left it shut (2026-11-08, on the owner's TV).
 
     /** When this boot began by the wall clock, to tell a stored time of this boot from one before. */
     private fun bootStamp(): Long = System.currentTimeMillis() - SystemClock.elapsedRealtime()
 
-    /** Whether a time saved as [elapsed] with [stamp] was in this boot; the clock may be set after it. */
-    private fun thisBoot(elapsed: Long, stamp: Long): Boolean =
-        elapsed in 0..SystemClock.elapsedRealtime() && abs(stamp - bootStamp()) < SAME_BOOT_SLACK_MS
+    /**
+     * Whether a time saved as [elapsed] with [stamp] and [bootId] (null in an older version) was in
+     * this boot. The boot id decides; without one the clock does, and a 0 stamp (a clock never set
+     * yet) says nothing about which boot it was.
+     */
+    private fun thisBoot(elapsed: Long, stamp: Long, bootId: String?): Boolean {
+        val now = BOOT_ID
+        if (bootId != null && now != null) return bootId == now
+        return stamp > 0 && elapsed in 0..SystemClock.elapsedRealtime() &&
+            abs(stamp - bootStamp()) < SAME_BOOT_SLACK_MS
+    }
 
     /** The screen went off: the next time it lights is a wake, and the target is due again. */
     fun noteScreenOff(context: Context) {
         val now = SystemClock.elapsedRealtime()
         val stamp = bootStamp()
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit(commit = true) {
             putLong(SCREEN_OFF_ELAPSED, now).putLong(SCREEN_OFF_BOOT, stamp)
+                .putString(SCREEN_OFF_BOOT_ID, BOOT_ID)
             // A wake splash is owed: Home's next appearance after this screen-off (2026-11-05).
             putLong(WAKE_ARMED_ELAPSED, now).putLong(WAKE_ARMED_BOOT, stamp)
         }
@@ -52,7 +83,7 @@ object BootOpen {
     fun wakeSplashOwed(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val armed = prefs.getLong(WAKE_ARMED_ELAPSED, -1L)
-        return armed >= 0 && thisBoot(armed, prefs.getLong(WAKE_ARMED_BOOT, 0L))
+        return armed >= 0 && thisBoot(armed, prefs.getLong(WAKE_ARMED_BOOT, 0L), null)
     }
 
     /** The wake has been shown for this screen-off; the next one arms it again. */
@@ -62,6 +93,33 @@ object BootOpen {
         }
     }
 
+    fun noteAwake(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+            putLong(AWAKE_ASLEEP, asleep()).putLong(AWAKE_ASLEEP_BOOT, bootStamp())
+        }
+    }
+
+    /**
+     * Aerial awake, and how long the kernel had been suspended at that point. The screen-off
+     * broadcast that arms the wake splash does not always reach Aerial: Xiaomi stops it on the way
+     * into standby, before SCREEN_OFF (a short-press standby then woke straight into Home with no
+     * splash, 2026-11-06). This is the fallback: if the kernel has been suspended since Aerial was
+     * last awake, the light-up was a wake. The display holds the CPU out of suspend while it is
+     * lit, so any real suspend means the panel went off; a few seconds of it count. Only a young
+     * process asks — an old one resuming after a suspend is a long-idle screensaver, and its
+     * panel going off would have armed the splash through the broadcast anyway. And only within
+     * one boot: a cold start resets [asleep], and a power-on owes no splash.
+     */
+    fun suspendedSinceAwake(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT >= 24 &&
+            SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime() > COLD_WAKE_MS
+        ) return false
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val at = prefs.getLong(AWAKE_ASLEEP, -1L)
+        return at >= 0 && thisBoot(at, prefs.getLong(AWAKE_ASLEEP_BOOT, 0L), null) &&
+            asleep() - at > SPLASH_SLEPT_MS
+    }
+
     /**
      * The viewer pressed Home. Kept on disk as well: pressing it where the stock launcher raises no
      * window change makes the guard switch accessibility off and on, which starts it in a new
@@ -69,8 +127,9 @@ object BootOpen {
      * Home press was the viewer's rather than what the TV starts on being covered.
      */
     fun noteHomeKey(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit(commit = true) {
             putLong(HOME_ELAPSED, SystemClock.elapsedRealtime()).putLong(HOME_BOOT, bootStamp())
+                .putString(HOME_BOOT_ID, BOOT_ID)
         }
     }
 
@@ -78,13 +137,14 @@ object BootOpen {
     fun homeKeyWithin(context: Context, ms: Long): Boolean {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val at = prefs.getLong(HOME_ELAPSED, -1L)
-        return at >= 0 && thisBoot(at, prefs.getLong(HOME_BOOT, 0L)) && SystemClock.elapsedRealtime() - at < ms
+        return at >= 0 && thisBoot(at, prefs.getLong(HOME_BOOT, 0L), prefs.getString(HOME_BOOT_ID, null)) &&
+            SystemClock.elapsedRealtime() - at < ms
     }
 
     fun noteOpened(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit(commit = true) {
             putLong(OPENED_ELAPSED, SystemClock.elapsedRealtime()).putLong(OPENED_BOOT, bootStamp())
-                .putLong(OPENED_ASLEEP, asleep())
+                .putLong(OPENED_ASLEEP, asleep()).putString(OPENED_BOOT_ID, BOOT_ID)
         }
     }
 
@@ -116,16 +176,27 @@ object BootOpen {
     /** Whether the screen went off in this boot after the target was last opened. */
     private fun offSinceOpened(prefs: SharedPreferences): Boolean {
         val opened = prefs.getLong(OPENED_ELAPSED, -1L)
-        if (opened < 0 || !thisBoot(opened, prefs.getLong(OPENED_BOOT, 0L))) return false
+        if (opened < 0 || !thisBoot(opened, prefs.getLong(OPENED_BOOT, 0L), prefs.getString(OPENED_BOOT_ID, null)))
+            return false
         val off = prefs.getLong(SCREEN_OFF_ELAPSED, -1L)
-        return off >= 0 && thisBoot(off, prefs.getLong(SCREEN_OFF_BOOT, 0L)) && off > opened
+        return off >= 0 && thisBoot(off, prefs.getLong(SCREEN_OFF_BOOT, 0L), prefs.getString(SCREEN_OFF_BOOT_ID, null)) &&
+            off > opened
+    }
+
+    /** Whether the screen went off in this boot after [elapsed] (elapsedRealtime of this boot). */
+    fun screenOffSince(context: Context, elapsed: Long): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val off = prefs.getLong(SCREEN_OFF_ELAPSED, -1L)
+        return off >= 0 && thisBoot(off, prefs.getLong(SCREEN_OFF_BOOT, 0L), prefs.getString(SCREEN_OFF_BOOT_ID, null)) &&
+            off > elapsed
     }
 
     /** Whether the target was opened in this boot within the last [ms]. */
     fun openedWithin(context: Context, ms: Long): Boolean {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val opened = prefs.getLong(OPENED_ELAPSED, -1L)
-        return opened >= 0 && thisBoot(opened, prefs.getLong(OPENED_BOOT, 0L)) && SystemClock.elapsedRealtime() - opened < ms
+        return opened >= 0 && thisBoot(opened, prefs.getLong(OPENED_BOOT, 0L), prefs.getString(OPENED_BOOT_ID, null)) &&
+            SystemClock.elapsedRealtime() - opened < ms
     }
 
     /** How long this boot has spent suspended: uptime stops in deep sleep, elapsed time does not. */
@@ -145,12 +216,26 @@ object BootOpen {
     fun due(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val opened = prefs.getLong(OPENED_ELAPSED, -1L)
-        if (opened < 0 || !thisBoot(opened, prefs.getLong(OPENED_BOOT, 0L))) return true
+        if (opened < 0 || !thisBoot(opened, prefs.getLong(OPENED_BOOT, 0L), prefs.getString(OPENED_BOOT_ID, null)))
+            return true
         return sleptSince(prefs.getLong(OPENED_ASLEEP, -1L), asleep()) || offSinceOpened(prefs)
     }
 
+    /**
+     * Whether the screen went off in this boot after the target was last opened, for a guard bound
+     * with the screen already lit: MiTV-MFTR0 (Android 14) keeps Aerial's process through standby,
+     * so the guard is created after the screen lights and its SCREEN_ON is already gone, while the
+     * process age rules out every other wake test there (issue #1229). Cleared by the target being
+     * opened again, which [noteOpened] does, so it cannot open it twice in one wake.
+     */
+    fun dueAfterMissedWake(context: Context): Boolean =
+        offSinceOpened(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE))
+
     private const val SAME_BOOT_SLACK_MS = 2 * 60 * 1000L
     private const val SLEPT_MS = 30_000L
+
+    /** Any real suspend outlasts this; the display keeps the CPU awake while the panel is lit. */
+    private const val SPLASH_SLEPT_MS = 5_000L
 
     /** A wake on MiTV-MFTR0 took up to 2 minutes to bring Aerial's process up (PR #927). */
     private const val COLD_WAKE_MS = 3 * 60 * 1000L

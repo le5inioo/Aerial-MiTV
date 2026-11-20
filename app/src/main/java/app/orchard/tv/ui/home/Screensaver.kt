@@ -98,8 +98,8 @@ import kotlin.random.Random
  * - My image host: a new picture from the owner's own host every twenty seconds, left and right
  *   asking for one at once.
  *
- * If the films cannot be reached, Aerial falls back to Photos. Left and right step to the previous
- * or next film or photo, as on Apple TV; see [ScreensaverSkips].
+ * If the films cannot be reached, Aerial falls back to Photos. Right steps to the next film or
+ * photo; left and every other key wake the TV. See [ScreensaverSkips].
  *
  * Until one is chosen the kind follows the wallpaper (Wallpapers.screensaver): aerial films with the
  * aerial wallpaper, photos with a picture, starting from that picture.
@@ -123,6 +123,7 @@ fun Screensaver(visible: Boolean, apps: List<AppEntry>, now: LocalDateTime, skip
         if (visible) held.value = carry
         when (val carried = held.value) {
             is SaverCarry.Film -> { FilmCarry(carried.film, now, skips.steps); return@AnimatedVisibility }
+            is SaverCarry.Video -> { VideoCarry(carried.film, skips.steps); return@AnimatedVisibility }
             is SaverCarry.Still -> { PhotoSaver(now, skips.steps, carried.wallpaper, carried); return@AnimatedVisibility }
             null -> Unit
         }
@@ -140,8 +141,8 @@ fun Screensaver(visible: Boolean, apps: List<AppEntry>, now: LocalDateTime, skip
                     },
                 )
                 ScreensaverMode.Photos -> PhotoSaver(now, skips.steps, remember { Wallpapers.screensaverPicture() })
-                ScreensaverMode.Clock, ScreensaverMode.System -> ClockSaver(apps, now)
-                ScreensaverMode.FlipClock -> FlipClockSaver(now)
+                ScreensaverMode.System -> ClockSaver(apps, now)
+                ScreensaverMode.FlipClock -> FlipClockSaver()
                 ScreensaverMode.Webhost -> if (hostFailed) PhotoSaver(now, skips.steps) else WebHostSaver(
                     now, skips.steps, onUnavailable = { hostFailed = true },
                 )
@@ -154,23 +155,20 @@ fun Screensaver(visible: Boolean, apps: List<AppEntry>, now: LocalDateTime, skip
 }
 
 /**
- * Left / right on the remote while the screensaver is up. The host (MainActivity on Home,
- * AerialDream as the system screensaver) offers every key here first; keys not taken here wake.
+ * Right on the remote while the screensaver is up: the next film, photo or picture. Left no longer
+ * steps (it used to start a film over); every other key — left included — is left to the host
+ * (MainActivity on Home, AerialDream as the system screensaver), which wakes the TV. The owner
+ * wants one key only, right for the next (2026-11-14).
  */
 class ScreensaverSkips {
     private val flow = MutableSharedFlow<Int>(extraBufferCapacity = 8)
     val steps: SharedFlow<Int> get() = flow
 
-    /** True if the screensaver took [event], both its down and its up. The clock has nothing to step through. */
+    /** True if the screensaver took [event], both its down and its up. The clocks have nothing to step through. */
     fun onKey(event: KeyEvent): Boolean {
-        val step = when (event.keyCode) {
-            KeyEvent.KEYCODE_DPAD_LEFT -> -1
-            KeyEvent.KEYCODE_DPAD_RIGHT -> 1
-            else -> return false
-        }
-        // The clocks have nothing to step through.
-        if (Wallpapers.screensaver == ScreensaverMode.Clock || Wallpapers.screensaver == ScreensaverMode.FlipClock) return false
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) flow.tryEmit(step)
+        if (event.keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false
+        if (Wallpapers.screensaver == ScreensaverMode.FlipClock) return false
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) flow.tryEmit(1)
         return true
     }
 }
@@ -179,6 +177,9 @@ class ScreensaverSkips {
 sealed interface SaverCarry {
     /** The aerial wallpaper's film, moving on behind Home. */
     class Film(val film: LiveFilm) : SaverCarry
+
+    /** The owner's video wallpaper, moving on behind Home in its own player. */
+    class Video(val film: VideoLiveFilm) : SaverCarry
 
     /** The wallpaper's picture, drawing in behind Home (HomeBackground) as the photos' first. */
     class Still(val wallpaper: app.orchard.tv.wallpaper.Wallpaper) : SaverCarry {
@@ -225,19 +226,28 @@ fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDrawingIn(image: ImageB
     }
 }
 
+/**
+ * Whether Home's screensaver carries the wallpaper's own player on rather than starting one of its
+ * own: aerials over the aerial wallpaper in its format (not Dolby Vision chosen by hand, which the
+ * wallpaper does not play), or the owner's videos over their video wallpaper. Then neither a new
+ * player in Home nor the system's dream (a new window, TCL MT5879) comes between them.
+ */
+fun saverCarriesWallpaper(context: android.content.Context): Boolean = when {
+    Wallpapers.selectedId == Wallpapers.LIVE -> Wallpapers.screensaver == ScreensaverMode.Aerial && AerialFormats.screensaverCarriesWallpaper(context)
+    Wallpapers.isVideo() -> Wallpapers.screensaver == ScreensaverMode.Videos
+    else -> false
+}
+
 /** Where a screensaver of aerials starts when it cannot carry Home's player on (AerialDream). */
 object AerialStart {
     /**
      * Where a screensaver of aerials starts: the film and moment the aerial wallpaper or the last
      * screensaver left (one spot for both, whatever the wallpaper, so the two are always the same
-     * film), or the day's new film from its start (AerialSet.takeDaily).
+     * film). It rolls forward only when the wallpaper or screensaver is left, not by the day.
      */
     fun start(context: android.content.Context): Pair<String, Long>? {
-        AerialSet.takeDaily(context)?.let { film ->
-            DiagLog.i("today's new film ${film.id}")
-            Wallpapers.leaveLiveFilm(film.id, 0L)
-            return film.id to 0L
-        }
+        // The held film rolls forward only when the wallpaper or screensaver is left (AerialSet.advance),
+        // not by the day: the same one stays until then (owner, 2026-11-13).
         return LiveFilm.onHome?.spot() ?: Wallpapers.liveSpot()
     }
 
@@ -252,9 +262,9 @@ object AerialStart {
             aerialQualityCap?.takeIf { it.ordinal < q.ordinal } ?: q
         }
         val live = LiveFilm.onHome
-        // A new day starts the screensaver on its new film, from the start (start()).
-        val (id, at) = if (AerialSet.due(context)) AerialSet.nextNew(context).id to 0L
-            else live?.spot()?.let { (id, at) -> id to at + if (live.moving) leadMs else 0L } ?: Wallpapers.liveSpot() ?: return
+        // The held film, from where Home left it (it rolls forward only on leaving, not by the day).
+        val (id, at) = live?.spot()?.let { (id, at) -> id to at + if (live.moving) leadMs else 0L }
+            ?: Wallpapers.liveSpot() ?: return
         val film = Aerials.all(context).firstOrNull { it.id == id } ?: return
         AerialStream.prepareStart(context, film, quality, aerialsOverHttp, at)
         // And the frame it starts on, as Home's picture to come back on (issue #1238).
@@ -283,9 +293,18 @@ private fun FilmCarry(film: LiveFilm, now: LocalDateTime, steps: SharedFlow<Int>
     }
     val context = LocalContext.current
     LaunchedEffect(steps) { steps.collect { film.skip(context, it) } }
-    // A new day's film comes in as the screensaver starts, over the wallpaper's film (AerialSet).
-    LaunchedEffect(Unit) { if (AerialSet.due(context)) film.skip(context, 1) }
     Labels(caption, now, showTime = false, shade = false)
+}
+
+/**
+ * The owner's video wallpaper carried on as the screensaver: no player, no surface and no black
+ * box of ours — the film simply keeps moving on Home's own surface, and Home fades its tiles out
+ * around it. Only right reaches here, rolling the held video on inside that same player, so Home
+ * comes back on the film now showing (owner, 2026-11-14).
+ */
+@Composable
+private fun VideoCarry(film: VideoLiveFilm, steps: SharedFlow<Int>) {
+    LaunchedEffect(steps) { steps.collect { film.skip(it) } }
 }
 
 /** Where the labels' shade ends at the top and starts at the bottom, of the screen's height. */
@@ -312,7 +331,7 @@ private fun labelShade(): ImageBitmap {
     return out.asImageBitmap()
 }
 
-/** Place name bottom-left, time top-right: how tvOS labels its screensaver. */
+/** Place name bottom-left, time top-right: how tvOS labels its screensaver. Each can be turned off in Personalize. */
 @Composable
 private fun Labels(
     caption: String?,
@@ -324,7 +343,8 @@ private fun Labels(
     // Fades in where Home's own clock has moved to, as the photos cover it.
     val time by animateFloatAsState(if (showTime) 1f else 0f, tween(2000), label = "time")
     Box(Modifier.fillMaxSize()) {
-        if (shade) Canvas(Modifier.fillMaxSize().diagLayer("shade")) {
+        // Both words turned off in Personalize: nothing to read, so no shade either.
+        if (shade && (AerialSettings.screensaverClock || AerialSettings.screensaverCaption)) Canvas(Modifier.fillMaxSize().diagLayer("shade")) {
             val shade = labelShadeImage
             // Just enough shade under the text to read it over bright sky or snow. Only its two
             // bands: the clear middle would cost the GPU as much to fill (Lite's SaverView.Shade).
@@ -352,7 +372,8 @@ private fun Labels(
                     translationY = drift.y.toPx()
                 },
         )
-        AnimatedContent(
+        // Turned off in Personalize: the place name goes at once, mid-film too.
+        if (AerialSettings.screensaverCaption) AnimatedContent(
             targetState = caption.orEmpty(),
             // One after the other: two names fading across each other in the same place smeared.
             transitionSpec = { fadeIn(tween(600, delayMillis = 400, easing = Motion.EaseOut)) togetherWith fadeOut(tween(400, easing = Motion.EaseOut)) },
@@ -446,7 +467,7 @@ private fun AerialSaver(
                 ?: (id to at)
         }
     }
-    // The films kept (AerialSet), from the wallpaper's: the wallpaper plays them in the same order.
+    // The one film kept (AerialSet), from the wallpaper's: the wallpaper plays the same one.
     val films = remember { mutableStateListOf<Aerial>().apply { addAll(AerialSet.playlist(context, startAt?.first)) } }
     val firstAtMs = remember { startAt?.takeIf { (id, _) -> films.first().id == id }?.second ?: 0L }
     // Its decoder starts on the film's own surface, not ExoPlayer's placeholder (AerialStream.player).
@@ -475,28 +496,26 @@ private fun AerialSaver(
         player.playWhenReady = true
     }
 
-    /** The next film kept, after one that would not play. */
+    /** After a film that would not play: with only one film kept, start it once more. */
     fun next() {
         playing = false
-        player.seekToNextMediaItem()
-        if (player.playbackState == Player.STATE_IDLE) player.prepare()
+        if (films.size <= 1) load(0) else {
+            player.seekToNextMediaItem()
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+        }
     }
 
-    /** The viewer's left and right: back to a film kept, or a new one (AerialSet.addNew). */
+    /** Right replaces the kept film with a new one (AerialSet.addNew); left is no longer a step. */
     fun skip(step: Int) {
-        if (step < 0) {
-            playing = false
-            player.seekToPreviousMediaItem()
-            if (player.playbackState == Player.STATE_IDLE) player.prepare()
-            return
-        }
+        if (step <= 0) return
         val new = AerialSet.addNew(context)
-        val at = player.currentMediaItemIndex + 1
-        films.add(at, new)
-        player.addMediaItem(at, AerialStream.mediaItem(new, quality, aerialsOverHttp))
+        // The running list must not grow with every skip: one film only, looped. Otherwise a few
+        // right presses brought the old films back into the rotation.
+        films.clear()
+        films.add(new)
+        index = 0
         playing = false
-        player.seekTo(at, 0L)
-        if (player.playbackState == Player.STATE_IDLE) player.prepare()
+        load(0)
     }
 
     DisposableEffect(player) {
@@ -560,6 +579,9 @@ private fun AerialSaver(
         onDispose {
             AerialStart.running = false
             if (shownAny) player.currentMediaItem?.mediaId?.let { leave(it, player.currentPosition, persist = true) }
+            // Left the aerial screensaver: the next film is warmed and becomes the held one, so the
+            // wallpaper — or the next screensaver — shows it without waiting on the network.
+            AerialSet.advance(context)
             handler.removeCallbacksAndMessages(null)
             player.removeListener(listener)
             player.release()
@@ -578,13 +600,7 @@ private fun AerialSaver(
             leave(film.id, player.currentPosition, persist = ticks++ % 30 == 0)
         }
     }
-    LaunchedEffect(steps) {
-        steps.collect { step ->
-            // Right always brings a new film; left needs another to go back to.
-            if (step < 0 && films.size < 2) return@collect
-            skip(step)
-        }
-    }
+    LaunchedEffect(steps) { steps.collect { skip(it) } }
     // A film the CDN serves slowly is passed over rather than waited for.
     LaunchedEffect(attempt, playing) {
         if (playing) return@LaunchedEffect
@@ -655,7 +671,7 @@ private fun WebHostSaver(now: LocalDateTime, steps: SharedFlow<Int>, onUnavailab
     var round by remember { mutableIntStateOf(0) }
     var failures by remember { mutableIntStateOf(0) }
     LaunchedEffect(round) {
-        val next = withContext(Dispatchers.IO) { fetchHostPicture(Wallpapers.webHostUrl()) }
+        val next = withContext(Dispatchers.IO) { fetchHostPicture(Wallpapers.nextWebHostSaverUrl()) }
         if (next != null) {
             picture = next
             failures = 0
@@ -734,6 +750,8 @@ private fun PhotoSaver(
     // Restarts on every slide, so a step from the remote also restarts the 18 s wait.
     LaunchedEffect(pool, slide) {
         if (pool.isEmpty()) return@LaunchedEffect
+        // A slide from the daily ring counts as one of its uses (owner, 2026-11-13).
+        Wallpapers.noteSaverPhoto()
         if (carried == null || slide != 0) {
             val wp = pool[slide.mod(pool.size)]
             val bmp = withContext(Dispatchers.Default) { Wallpapers.picture(wp, Wallpapers.screenW, Wallpapers.screenH)?.asImageBitmap() }

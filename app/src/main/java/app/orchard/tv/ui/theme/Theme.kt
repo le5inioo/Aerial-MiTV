@@ -76,10 +76,32 @@ private fun inter(opticalSize: Float) = if (Build.VERSION.SDK_INT < 26) FontFami
 val InterText = inter(14f)
 val InterDisplay = inter(32f)
 
+/**
+ * "Flip Digits" Bold (DIN 1451 style), the owner's pick for the flip clock's digits.
+ * res/font/flipdigits.ttf is an 11-character subset of Bahnschrift: 0-9, the colon, and the
+ * few glyphs its layout features reference. The variable wght/wdth axes are left intact, so
+ * FontVariation.weight(700) resolves to exactly the same outlines as before; the full 371 KB
+ * Microsoft face is no longer shipped. Its copyright and licence name records are preserved
+ * in the subset. Home's large clock uses the TV's own default face instead.
+ */
+@OptIn(ExperimentalTextApi::class)
+val FlipDigits = FontFamily(
+    Font(
+        R.font.flipdigits, weight = FontWeight.Bold,
+        variationSettings = FontVariation.Settings(FontVariation.weight(700)),
+    )
+)
+
 object Type {
+    /**
+     * Home's large clock: the TV's default sans at its heaviest weight (Black / 900), with
+     * tracking at zero. FontFamily.Default follows the firmware's default family rather than
+     * bundling a face in the APK; the -0.04em that suited Inter Display's narrow display cut
+     * crushed the heavy digits together. Size, colour and shadow are unchanged.
+     */
     val Clock = TextStyle(
-        fontFamily = InterDisplay, fontWeight = FontWeight.W700,
-        fontSize = 104.sp, letterSpacing = (-0.04).em, color = Palette.Label,
+        fontFamily = FontFamily.Default, fontWeight = FontWeight.Black,
+        fontSize = 104.sp, letterSpacing = 0.sp, color = Palette.Label,
     )
     /** Over and under the large clock: the date, and the weather. */
     val ClockDate = TextStyle(

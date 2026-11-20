@@ -87,6 +87,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.orchard.tv.R
 import app.orchard.tv.settings.AerialSettings
+import app.orchard.tv.settings.ClockHours
 import app.orchard.tv.wallpaper.Images
 import app.orchard.tv.system.NetKind
 import app.orchard.tv.system.NetworkStatus
@@ -163,14 +164,22 @@ fun rememberNow(): State<LocalDateTime> {
     return now
 }
 
+/**
+ * The time, 24- or 12-hour as chosen in Personalize ([ClockHours]). 12-hour time has no AM/PM, as on
+ * tvOS and the iPhone's lock screen: the screensaver's clock takes over from Home's, and the two
+ * must read the same.
+ */
 @Composable
 fun timeText(now: LocalDateTime): String {
-    val context = LocalContext.current
-    // 24-hour unless the owner chose 12-hour. With the setting unset, Android falls back to the
-    // locale, and zh_CN means 12-hour, which TV clocks here never show (TCL 65S515D, issue #15).
-    val twelve = runCatching { android.provider.Settings.System.getString(context.contentResolver, android.provider.Settings.System.TIME_12_24) }.getOrNull() == "12"
-    val pattern = if (twelve) "h:mm" else "H:mm"
-    return now.format(DateTimeFormatter.ofPattern(pattern))
+    val twelve = twelveHour(LocalContext.current, AerialSettings.clockHours)
+    return now.format(DateTimeFormatter.ofPattern(if (twelve) "h:mm" else "H:mm"))
+}
+
+/** Whether to show 12-hour time: as chosen, or as the TV is set (24-hour where it says nothing). */
+fun twelveHour(context: Context, hours: ClockHours): Boolean = when (hours) {
+    ClockHours.H24 -> false
+    ClockHours.H12 -> true
+    ClockHours.System -> runCatching { android.provider.Settings.System.getString(context.contentResolver, android.provider.Settings.System.TIME_12_24) }.getOrNull() == "12"
 }
 
 @Composable
@@ -256,6 +265,12 @@ fun HomeBackground(
      * 2026-11-06). Null: the plate takes the picture's glass as before.
      */
     plateGlass: ImageBitmap? = null,
+    /**
+     * "Follow App": the grid's glass belongs to the app in focus and changes with every step. The
+     * usual hold — a new glass of the same wallpaper waits until the grid is out of sight (a film
+     * stopped on a new frame) — would keep the first app's light on the second page forever.
+     */
+    glassFollowsFocus: Boolean = false,
 ) {
     val shade = remember { Images.homeShade.asImageBitmap() }
     Box(Modifier.fillMaxSize()) {
@@ -267,7 +282,7 @@ fun HomeBackground(
             drawImage(shade, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()), filterQuality = FilterQuality.Low, alpha = stopped)
         }
         Box(Modifier.fillMaxSize().diagLayer("picture")) {
-            Pictures(backdrop, gridGlass ?: frosted, filmGlass.takeIf { glassAwaitsStop }, wallpaper, scroll, collapse, cover, filmStopped, toSaver)
+            Pictures(backdrop, gridGlass ?: frosted, filmGlass.takeIf { glassAwaitsStop }, wallpaper, scroll, collapse, cover, filmStopped, toSaver, glassFollowsFocus)
         }
         if (saverImage != null) Canvas(Modifier.fillMaxSize()) {
             val a = saverReveal()
@@ -310,6 +325,7 @@ private fun Pictures(
     cover: () -> Float,
     filmStopped: () -> Float,
     toSaver: () -> Float,
+    glassFollowsFocus: Boolean = false,
 ) {
     // The grid's glass goes as the film carries on into the screensaver, as the apps do: the
     // screensaver over it is see-through, and the film showed frosted under it.
@@ -317,6 +333,15 @@ private fun Pictures(
     fun moving(): Boolean = filmGlass != null && cover() > 0.01f && filmStopped() < 0.99f
     var held by remember { mutableStateOf(frosted to wallpaper) }
     LaunchedEffect(frosted, wallpaper) {
+        // "Follow App": every step of the focus has its own glass. The wallpaper's key stays the
+        // same ("auto"), and AnimatedContent below keys on it — a new glass under that same key
+        // would not start a transition and the first app's light would stay on the second page.
+        if (glassFollowsFocus) {
+            held = frosted to "$wallpaper/${System.identityHashCode(frosted)}"
+            return@LaunchedEffect
+        }
+        // A new glass of the same wallpaper waits until the grid is out of sight, where a film
+        // stopped on a new frame may have one.
         if (wallpaper == held.second) snapshotFlow { gridGlass() < 0.01f || moving() }.first { it }
         held = frosted to wallpaper
     }
@@ -355,7 +380,12 @@ private fun Pictures(
         targetState = held,
         contentKey = { it.second },
         transitionSpec = {
-            (fadeIn(tween(450, easing = Motion.EaseOut)) togetherWith ExitTransition.KeepUntilTransitionsFinished).using(null)
+            // "Follow App" swaps the grid's glass at every step of the focus. A 450 ms fade there
+            // would draw two full-screen glasses for as long as keys keep coming (MFTR0: 90th
+            // percentile 20 -> 30 ms a frame); the glass is a soft colour, so a cut reads fine.
+            val ms = if (glassFollowsFocus) 0 else 450
+            val exit = if (glassFollowsFocus) ExitTransition.None else ExitTransition.KeepUntilTransitionsFinished
+            (fadeIn(tween(ms, easing = Motion.EaseOut)) togetherWith exit).using(null)
         },
         modifier = Modifier.fillMaxSize(),
         label = "glass",
@@ -731,7 +761,7 @@ fun ShelfClock(
                 GlyphIcon(glyphFor(w), Color.White, 18.dp, Modifier.padding(end = 7.dp))
                 BasicText(
                     buildAnnotatedString {
-                        append("${w.celsius}°")
+                        append(stringResource(R.string.weather_temperature, w.celsius))
                         withStyle(second) { append("  $detail") }
                     },
                     style = Type.ClockDetail.copy(shadow = shadow),
@@ -814,25 +844,27 @@ private fun conditionName(kind: WeatherKind): Int = when (kind) {
 /**
  * The small clock: the time and the weather in one quiet line in the top left, level with the status
  * pill, so the wallpaper keeps the rest of the screen. A soft shadow keeps it readable on photos.
+ * No date: tried for issue #104, the owner found the line too busy (2026-11-08).
  */
 @Composable
 fun CornerClock(now: LocalDateTime, modifier: Modifier = Modifier, toSaver: () -> Float = { 0f }, saving: Boolean = false) {
     val drift = heldDrift(saving, now)
     val dim = Color.White.copy(alpha = 0.92f)
     val shadow = Shadow(Color.Black.copy(alpha = 0.5f), blurRadius = 8f)
+    // The weather goes as the time moves to the screensaver's place.
+    val aside = Modifier.graphicsLayer {
+        alpha = 1f - (toSaver() * 2.5f).coerceIn(0f, 1f)
+        compositingStrategy = CompositingStrategy.ModulateAlpha
+    }
     Row(modifier.height(34.dp), verticalAlignment = Alignment.CenterVertically) {
         BasicText(
             timeText(now), style = Type.SmallClock.copy(fontSize = Type.Title.fontSize, color = dim, shadow = shadow),
             modifier = Modifier.toSaverClock(toSaver, Type.Title.fontSize, Type.Title.fontSize.value.dp * CAP_TOP, drift),
         )
         Weather.now?.takeIf { AerialSettings.showWeather }?.let { w ->
-            val aside = Modifier.graphicsLayer {
-                alpha = 1f - (toSaver() * 2.5f).coerceIn(0f, 1f)
-                compositingStrategy = CompositingStrategy.ModulateAlpha
-            }
             GlyphIcon(glyphFor(w), dim, 18.dp, aside.padding(start = 16.dp, end = 6.dp))
             val place = Weather.place?.takeIf { it.length <= 12 }
-            BasicText(listOfNotNull(place, "${w.celsius}°").joinToString(" "), style = Type.Headline.copy(color = dim, shadow = shadow), modifier = aside)
+            BasicText(listOfNotNull(place, stringResource(R.string.weather_temperature, w.celsius)).joinToString(" "), style = Type.Headline.copy(color = dim, shadow = shadow), modifier = aside)
         }
     }
 }

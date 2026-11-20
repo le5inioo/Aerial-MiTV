@@ -43,24 +43,30 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.Inet4Address
-import java.security.SecureRandom
+import java.net.URLDecoder
 
 /**
  * The page a phone opens after scanning the TV's QR code: choose a wallpaper and the screensaver,
  * send photos, give an app's tile a picture of one's own, and name the weather's city. Choosing
  * pictures or typing a place with a remote is slow; with a phone it is not.
  *
- * It listens on the local network while Aerial runs (see [listen]), and every address carries a
- * random token shown only on the TV (the QR code and the address under it), so another device on
- * the network cannot use it by guessing. The token stays the same from one start to the next.
+ * It listens on the local network while Aerial runs (see [listen]) at one fixed address,
+ * http://<tv-ip>:8790/Aerial (the owner, 2026-11-13), so the page can be bookmarked once and
+ * stays the same after a reinstall or a change of the TV's IP. A token address saved by an
+ * older build is still accepted, so bookmarks made before this change keep working.
  */
-class PhoneServer private constructor(private val context: Context, private val token: String) : NanoHTTPD(PORT) {
+class PhoneServer private constructor(
+    private val context: Context,
+    private val legacyToken: String?,
+) : NanoHTTPD(PORT) {
 
     override fun serve(session: IHTTPSession): Response {
-        val prefix = "/$token"
         val uri = session.uri
-        if (!uri.startsWith(prefix)) return text(Response.Status.NOT_FOUND, "Not found")
-        val path = uri.removePrefix(prefix).ifEmpty { "/" }
+        val prefixes = listOfNotNull("/$PATH", legacyToken?.let { "/$it" })
+        // A whole segment: /AerialOther is not the panel, and /aerial is as good as /Aerial.
+        val prefix = prefixes.firstOrNull { p -> uri.equals(p, true) || uri.startsWith("$p/", true) }
+            ?: return text(Response.Status.NOT_FOUND, "Not found")
+        val path = uri.substring(prefix.length).ifEmpty { "/" }
         return runCatching {
             // In Kids and Elders mode the page changes nothing without the parental PIN: anyone on
             // the network with the address (a child with a phone) could otherwise undo the mode.
@@ -104,15 +110,52 @@ class PhoneServer private constructor(private val context: Context, private val 
                     val slot = f["slot"]?.toIntOrNull() ?: 0
                     val id = f["id"].orEmpty()
                     val ok = slot in 1..Wallpapers.PER_APP_SLOTS &&
-                        (id.isEmpty() || Wallpapers.items.any { it.id == id && !Wallpapers.isVideo(it.id) })
+                        (id.isEmpty() || id == Wallpapers.LATEST_DAILY ||
+                            Wallpapers.items.any { it.id == id && !Wallpapers.isVideo(it.id) })
                     if (ok) onMain { Wallpapers.setPerApp(slot, id.ifEmpty { null }) }
                     json(state().put("saved", ok))
                 }
                 session.method == Method.POST && path == "/api/webhost" -> {
-                    // Where the image host is: the owner may move the server to another machine.
+                    // The owner's links, each with a name. Which one feeds the wallpaper or the
+                    // screensaver is a separate pick (/api/webhostpick). The phone sends "hosts"
+                    // as a JSON array; "urls" (newline-separated) and "url" are the old shapes,
+                    // still accepted so an older page cannot wipe the list.
+                    val f = form(session)
+                    val hosts = mutableListOf<WebHost>()
+                    val rawHosts = f["hosts"]?.takeIf { it.isNotBlank() }
+                    if (rawHosts != null) {
+                        runCatching {
+                            val arr = JSONArray(rawHosts)
+                            (0 until arr.length()).forEach { i ->
+                                val o = arr.optJSONObject(i) ?: return@forEach
+                                hosts.add(WebHost(
+                                    name = o.optString("name"),
+                                    url = o.optString("url"),
+                                ))
+                            }
+                        }
+                    } else {
+                        val raw = f["urls"]?.takeIf { it.isNotBlank() } ?: f["url"].orEmpty()
+                        raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+                            .forEach { hosts.add(WebHost(name = "", url = it)) }
+                    }
                     var ok = false
-                    val url = form(session)["url"].orEmpty()
-                    if (url.isNotBlank()) onMain { ok = Wallpapers.setWebHostUrl(url) }
+                    if (hosts.isNotEmpty()) onMain { ok = Wallpapers.setWebHosts(hosts) }
+                    json(state().put("saved", ok))
+                }
+                session.method == Method.POST && path == "/api/webhostpick" -> {
+                    // Any number of hosts for the wallpaper or the screensaver. "ids" is a JSON
+                    // array; the old single "id" still works and an empty list aggregates them all.
+                    val f = form(session)
+                    val wallpaper = f["use"] != "saver"
+                    val ids = runCatching {
+                        f["ids"]?.let { arr ->
+                            val ja = JSONArray(arr)
+                            (0 until ja.length()).mapNotNull { ja.optString(it).takeIf { s -> s.isNotBlank() } }
+                        }
+                    }.getOrNull() ?: f["id"]?.takeIf { it.isNotBlank() }?.let { listOf(it) } ?: emptyList()
+                    var ok = false
+                    onMain { ok = Wallpapers.setWebHostSelected(wallpaper, ids) }
                     json(state().put("saved", ok))
                 }
                 session.method == Method.POST && path == "/api/screensaver" -> {
@@ -135,6 +178,7 @@ class PhoneServer private constructor(private val context: Context, private val 
                         "wallpaperAlwaysMoves" -> { onMain { AerialSettings.chooseWallpaperAlwaysMoves(on) }; true }
                         "showWeather" -> { onMain { AerialSettings.chooseShowWeather(on) }; true }
                         "screensaverClock" -> { onMain { AerialSettings.chooseScreensaverClock(on) }; true }
+                        "screensaverCaption" -> { onMain { AerialSettings.chooseScreensaverCaption(on) }; true }
                         else -> false
                     }
                     json(state().put("saved", known))
@@ -157,7 +201,7 @@ class PhoneServer private constructor(private val context: Context, private val 
                     json(state().put("removed", removed))
                 }
                 path.startsWith("/tile/") -> tile(java.net.URLDecoder.decode(path.removePrefix("/tile/"), "UTF-8"), own = session.parameters["art"]?.firstOrNull() == "own")
-                path.startsWith("/library/") -> libraryPicture(java.net.URLDecoder.decode(path.removePrefix("/library/"), "UTF-8"))
+                path.startsWith("/library/") -> libraryPicture(java.net.URLDecoder.decode(path.removePrefix("/library/"), "UTF-8"), session.parameters["c"]?.firstOrNull())
                 session.method == Method.POST && path == "/api/icon" -> icon(session)
                 session.method == Method.POST && path == "/api/source/name" -> {
                     val f = form(session)
@@ -205,8 +249,8 @@ class PhoneServer private constructor(private val context: Context, private val 
                     json(state().put("saved", known && name.isNotEmpty() && rename != null))
                 }
                 session.method == Method.POST && path == "/api/icon/pick" -> {
-                    // The library's picture or the app's own art for one app; either replaces a
-                    // picture sent from the phone.
+                    // One of the library's pictures or the app's own art for one app; either
+                    // replaces a picture sent from the phone.
                     val f = form(session)
                     val pkg = f["app"].orEmpty()
                     val pick = when (f["pick"]) {
@@ -214,14 +258,37 @@ class PhoneServer private constructor(private val context: Context, private val 
                         "own" -> IconLibrary.Pick.Own
                         else -> null
                     }
-                    val ok = installed(pkg) && pick != null && (pick != IconLibrary.Pick.Library || IconLibrary.has(pkg))
+                    val choice = f["choice"]?.takeIf { it.isNotEmpty() }
+                    val ok = installed(pkg) && pick != null && (pick != IconLibrary.Pick.Library ||
+                        IconLibrary.choices(pkg).any { choice == null || it.id == choice })
                     if (ok) {
                         CustomIcons.clear(pkg)
-                        // The library is what every app uses anyway: kept as no pick.
-                        IconLibrary.choose(pkg, pick.takeIf { it != IconLibrary.Pick.Library })
+                        // Kept even for the library, which most apps use anyway: a firmware app
+                        // drawn as Aerial's own tile takes it only when picked.
+                        IconLibrary.choose(pkg, pick, choice)
                         runBlocking(Dispatchers.Main) { CustomIcons.changed(); IconLibrary.changed() }
                     }
                     json(state().put("saved", ok))
+                }
+                session.method == Method.POST && path == "/api/icon/pick-all" -> {
+                    // One tap on the phone page: every app the library has a picture for uses it,
+                    // including firmware tiles Aerial draws itself (they take a picture only once
+                    // picked). Apps outside the library are left alone; a picture the owner picked
+                    // among an app's choices is kept, but a picture uploaded from the phone is
+                    // replaced. One changed() redraws Home once, however many apps were affected.
+                    var replaced = 0
+                    AppCatalog.loaded.forEach { a ->
+                        val pkg = a.key
+                        if (IconLibrary.choices(pkg).isEmpty()) return@forEach
+                        val hadCustom = CustomIcons.has(pkg)
+                        val already = IconLibrary.pick(pkg) == IconLibrary.Pick.Library
+                        if (!hadCustom && already) return@forEach
+                        if (hadCustom) CustomIcons.clear(pkg)
+                        IconLibrary.choose(pkg, IconLibrary.Pick.Library, IconLibrary.chosen(pkg)?.id)
+                        replaced++
+                    }
+                    if (replaced > 0) runBlocking(Dispatchers.Main) { CustomIcons.changed(); IconLibrary.changed() }
+                    json(state().put("saved", true).put("replaced", replaced))
                 }
                 session.method == Method.POST && path == "/api/icon/reset" -> {
                     val pkg = form(session)["app"].orEmpty()
@@ -261,6 +328,16 @@ class PhoneServer private constructor(private val context: Context, private val 
             .put("perApp", JSONObject().apply { Wallpapers.perApp.forEach { (slot, id) -> put(slot.toString(), id) } })
             .put("perAppSlots", Wallpapers.PER_APP_SLOTS)
             .put("webhostUrl", Wallpapers.webHostUrl())
+            .put("webhostUrls", JSONArray(Wallpapers.webHostUrls()))
+            .put("webhostHosts", JSONArray().apply {
+                Wallpapers.webHosts().forEach { h ->
+                    put(JSONObject().put("name", h.name).put("url", h.url))
+                }
+            })
+            .put("webhostWallpaperPick", Wallpapers.webHostPick(true))
+            .put("webhostSaverPick", Wallpapers.webHostPick(false))
+            .put("webhostWallpaperSelected", JSONArray(Wallpapers.webHostSelected(true).toList()))
+            .put("webhostSaverSelected", JSONArray(Wallpapers.webHostSelected(false).toList()))
             .put("screensaver", Wallpapers.screensaver.key)
             .put("saverVideo", Wallpapers.screensaverVideo ?: "")
             .put("screensaverFollows", Wallpapers.screensaverFollows)
@@ -273,6 +350,7 @@ class PhoneServer private constructor(private val context: Context, private val 
             .put("wallpaperAlwaysMoves", AerialSettings.wallpaperAlwaysMoves)
             .put("showWeather", AerialSettings.showWeather)
             .put("screensaverClock", AerialSettings.screensaverClock)
+            .put("screensaverCaption", AerialSettings.screensaverCaption)
             .put("wallpapers", list)
             .put("apps", JSONArray().apply {
                 // Pinned inputs first, then apps by the name Home shows. [default] is the name a
@@ -292,11 +370,12 @@ class PhoneServer private constructor(private val context: Context, private val 
                     // library has one for this app, which the phone can pick instead.
                     val icon = when {
                         CustomIcons.has(a.key) -> "custom"
-                        IconLibrary.has(a.key) && IconLibrary.uses(a.key) -> "library"
+                        IconLibrary.has(a.key) && AppCatalog.usesLibrary(a.key) -> "library"
                         else -> "own"
                     }
                     put(JSONObject().put("key", a.key).put("label", label).put("default", a.label).put("name", AppNames.of(a.key) ?: "")
                         .put("custom", CustomIcons.has(a.key)).put("library", IconLibrary.has(a.key)).put("icon", icon)
+                        .put("choices", libraryChoices(a.key, icon == "library"))
                         .put("stamp", CustomIcons.stamp(a.key) + IconLibrary.stamp(a.key) + icon.hashCode()))
                 }
             })
@@ -379,11 +458,18 @@ class PhoneServer private constructor(private val context: Context, private val 
     /** The tile as Home shows it; with [own], as the app's own art would draw it. */
     private fun tile(pkg: String, own: Boolean = false): Response {
         val app = (AppCatalog.pinnedSources + AppCatalog.loaded + AppCatalog.folders).firstOrNull { it.key == pkg } ?: return text(Response.Status.NOT_FOUND, "")
-        // An upload replies before Home's asynchronous reload has finished. Read the saved picture
-        // directly, so the phone cannot cache the old tile under the new upload's versioned URL.
-        val custom = if (own) null else CustomIcons.load(pkg)
-        val bmp = custom ?: run {
-            val art = if (own && app.source == null && app.folder == null) AppCatalog.ownArt(context, app) ?: app.art else app.art
+        // An upload or a pick replies before Home's asynchronous reload has finished. Draw from the
+        // saved picture or the pick directly, so the phone cannot cache the old tile under the new
+        // versioned URL (a library pick showed the previous picture until the next change).
+        val isApp = app.source == null && app.folder == null
+        val library = isApp && !own && IconLibrary.has(pkg)
+        val picked = when {
+            own || !isApp -> null
+            else -> CustomIcons.load(pkg) ?: if (library && AppCatalog.usesLibrary(pkg)) IconLibrary.load(pkg) else null
+        }
+        val bmp = picked ?: run {
+            // The app's own art when asked for, or when the library has a picture it does not use.
+            val art = if (isApp && (own || library)) AppCatalog.ownArt(context, app) ?: app.art else app.art
             TileArtFactory.flatten(art)
         }
         val out = ByteArrayOutputStream()
@@ -395,9 +481,22 @@ class PhoneServer private constructor(private val context: Context, private val 
         }
     }
 
-    /** The icon library's picture of an app, as downloaded. */
-    private fun libraryPicture(pkg: String): Response {
-        val f = IconLibrary.file(pkg) ?: return text(Response.Status.NOT_FOUND, "")
+    /**
+     * The icon library's pictures of an app on this TV, the default first: [id], [by] (the source's
+     * names: "name" and a name per language) and [on] for the one its tile uses ([inUse]: the tile
+     * uses the library at all).
+     */
+    private fun libraryChoices(pkg: String, inUse: Boolean) = JSONArray().apply {
+        val on = IconLibrary.chosen(pkg)?.id
+        IconLibrary.choices(pkg).forEach { c ->
+            put(JSONObject().put("id", c.id).put("by", IconLibrary.credits.optJSONObject(c.by) ?: JSONObject())
+                .put("on", inUse && c.id == on))
+        }
+    }
+
+    /** The icon library's picture of an app, as downloaded: [choice]'s, or the one its tile uses. */
+    private fun libraryPicture(pkg: String, choice: String?): Response {
+        val f = IconLibrary.file(pkg, choice) ?: return text(Response.Status.NOT_FOUND, "")
         val type = if (f.name.endsWith(".png")) "image/png" else "image/jpeg"
         return newFixedLengthResponse(Response.Status.OK, type, f.inputStream(), f.length()).apply {
             addHeader("Cache-Control", "max-age=600")
@@ -432,11 +531,15 @@ class PhoneServer private constructor(private val context: Context, private val 
         val files = HashMap<String, String>()
         session.parseBody(files)
         var added = 0
-        // NanoHTTPD stores each part in a temp file; several photos arrive as photo, photo1, photo2...
-        files.values.forEach { path ->
+        // NanoHTTPD keys each part by its field name and stores the bytes in a temp file.
+        // The phone puts the original file name, percent-encoded so any script survives,
+        // after the first colon in that field name (the owner, 2026-11-13).
+        files.entries.forEach { (field, path) ->
             val f = File(path)
             if (f.exists() && f.length() > 0) {
-                val id = f.inputStream().use { input -> runBlocking(Dispatchers.Main) { Wallpapers.addPhoto(input) } }
+                val encoded = field.takeIf { it.startsWith("photo") }?.substringAfter(':', "").orEmpty()
+                val name = if (encoded.isEmpty()) "" else runCatching { URLDecoder.decode(encoded, "UTF-8") }.getOrDefault("")
+                val id = f.inputStream().use { input -> runBlocking(Dispatchers.Main) { Wallpapers.addPhoto(input, name) } }
                 if (id != null) added++
             }
         }
@@ -556,6 +659,8 @@ class PhoneServer private constructor(private val context: Context, private val 
 
     companion object {
         const val PORT = 8790
+        /** The fixed path of the phone page: http://<tv-ip>:8790/Aerial (the owner, 2026-11-13). */
+        const val PATH = "Aerial"
         private const val TAG = "AerialPhone"
         /** Enough for a batch of phone photos at full size. */
         private const val MAX_UPLOAD = 200L * 1024 * 1024
@@ -574,7 +679,7 @@ class PhoneServer private constructor(private val context: Context, private val 
         fun listen(context: Context): PhoneServer? {
             running?.let { if (it.isAlive) return it }
             return runCatching {
-                PhoneServer(context.applicationContext, token(context)).also {
+                PhoneServer(context.applicationContext, legacyToken(context)).also {
                     it.start(SOCKET_READ_TIMEOUT, true)
                     running = it
                 }
@@ -584,24 +689,14 @@ class PhoneServer private constructor(private val context: Context, private val 
         /** The address to put in the QR code, listening first if need be, or null offline. */
         fun start(context: Context): String? {
             val ip = lanAddress(context) ?: return null
-            val server = listen(context) ?: return null
-            return "http://$ip:$PORT/${server.token}/"
+            listen(context) ?: return null
+            return "http://$ip:$PORT/$PATH"
         }
 
-        /**
-         * Kept from one start to the next, so the address can be bookmarked on a computer and the
-         * phone's tab still works the next day.
-         */
-        private fun token(context: Context): String {
+        /** A bookmark made before the address became fixed still opens the page after an upgrade. */
+        private fun legacyToken(context: Context): String? {
             val prefs = context.getSharedPreferences("phone_page", Context.MODE_PRIVATE)
-            prefs.getString("token", null)?.takeIf { it.length == 8 }?.let { return it }
-            return newToken().also { prefs.edit().putString("token", it).apply() }
-        }
-
-        private fun newToken(): String {
-            val alphabet = "abcdefghjkmnpqrstuvwxyz23456789"
-            val rnd = SecureRandom()
-            return (1..8).map { alphabet[rnd.nextInt(alphabet.length)] }.joinToString("")
+            return prefs.getString("token", null)?.takeIf { it.length == 8 && it != PATH }
         }
 
         fun lanAddress(context: Context): String? {

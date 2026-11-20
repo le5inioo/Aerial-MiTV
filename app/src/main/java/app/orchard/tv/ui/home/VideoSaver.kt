@@ -31,6 +31,7 @@ import app.orchard.tv.ui.components.FilmSlot
 import app.orchard.tv.system.DiagLog
 import app.orchard.tv.wallpaper.ScreensaverVideo
 import app.orchard.tv.wallpaper.ScreensaverVideos
+import app.orchard.tv.wallpaper.Wallpapers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharedFlow
@@ -40,18 +41,24 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun VideoSaver(steps: SharedFlow<Int>, onUnavailable: () -> Unit, only: String? = null) {
     val context = LocalContext.current
+    // The carousel ("My Videos, In Turn") holds one video and loops it; a chosen one (Personalize)
+    // loops that one. Right rolls the held one on; leaving no longer does (owner, 2026-11-14).
+    val rolling = only == null
     val films by produceState<List<ScreensaverVideo>?>(null, only) {
         val all = withContext(Dispatchers.IO) { ScreensaverVideos.all(context) }
-        // One film picked to loop (Personalize); gone from the TV, all of them in turn again.
-        value = (only?.takeIf { id -> all.any { it.id == id } }?.let { id -> all.filter { it.id == id } }
-            ?: all).shuffled()
+        value = when {
+            all.isEmpty() -> emptyList()
+            only != null && all.any { it.id == only } -> all.filter { it.id == only }
+            rolling -> listOfNotNull(Wallpapers.rollingVideo())
+            else -> all.shuffled()
+        }
     }
-    LocalFilms(films, steps, onUnavailable)
+    LocalFilms(films, steps, onUnavailable, rolling = rolling)
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-private fun LocalFilms(films: List<ScreensaverVideo>?, steps: SharedFlow<Int>, onUnavailable: () -> Unit) {
+private fun LocalFilms(films: List<ScreensaverVideo>?, steps: SharedFlow<Int>, onUnavailable: () -> Unit, rolling: Boolean = false) {
     val context = LocalContext.current
     val player = remember {
         // As AerialSaver does: Home's wallpaper film starts again as Home resumes for a moment
@@ -74,10 +81,23 @@ private fun LocalFilms(films: List<ScreensaverVideo>?, steps: SharedFlow<Int>, o
     // Films that have shown a frame this time: a pause in one of those is not a broken file.
     val shown = remember { HashSet<String>() }
 
+    /** Right only: the carousel's next held video in this same player (left no longer steps). */
     fun skip(step: Int) {
-        if (player.mediaItemCount == 0) return
-        if (step < 0) player.seekToPreviousMediaItem() else player.seekToNextMediaItem()
-        if (player.playbackState == Player.STATE_IDLE) player.prepare()
+        if (step <= 0 || player.mediaItemCount == 0) return
+        if (rolling) {
+            // A one-item queue with REPEAT_MODE_ALL only started the same film over on
+            // seekToNextMediaItem, so right looked broken. Roll the held video and switch the
+            // media item in place instead (owner, 2026-11-14).
+            val next = Wallpapers.nextRollingVideo() ?: return
+            DiagLog.i("local screensaver right: ${next.id}")
+            playing = false
+            player.setMediaItem(MediaItem.Builder().setUri(next.file.toUri()).setMediaId(next.id).build(), 0L)
+            player.prepare()
+            player.playWhenReady = true
+        } else {
+            player.seekToNextMediaItem()
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+        }
     }
     fun failed() {
         playing = false
@@ -113,7 +133,12 @@ private fun LocalFilms(films: List<ScreensaverVideo>?, steps: SharedFlow<Int>, o
             }
         }
         player.addListener(listener)
-        onDispose { player.removeListener(listener); player.release() }
+        onDispose {
+            // No roll on leaving: when the video wallpaper carries the film this saver never
+            // starts at all, and where it does (a picture wallpaper) the owner wants the same
+            // film on Home's return. Right is the only thing that changes it (owner, 2026-11-14).
+            player.removeListener(listener); player.release()
+        }
     }
     // The list is read off the main thread, but the film's view is there from the first frame: a
     // SurfaceView added to the dream's window after its first frame never got a surface, and the
