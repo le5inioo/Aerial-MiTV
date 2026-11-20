@@ -6,8 +6,8 @@
 
 A launcher tuned for one TV: the Xiaomi TV S65 Mini LED (MiTV-MFTR0). Forked from [Aerial](https://github.com/pengchujin/aerial-tv).
 
-<a href="https://github.com/le5inioo/aerial-mitv-mftr0/releases/latest"><img alt="Download APK" src="https://img.shields.io/badge/Download%20APK-34a853?style=for-the-badge&logo=android&logoColor=white"></a>
-<a href="https://github.com/le5inioo/aerial-mitv-mftr0/releases/latest"><img alt="Version" src="https://img.shields.io/github/v/release/le5inioo/aerial-mitv-mftr0?style=flat-square&label=version&color=2997ff"></a>
+<a href="https://github.com/le5inioo/Aerial-MiTV/releases/latest"><img alt="Download APK" src="https://img.shields.io/badge/Download%20APK-34a853?style=for-the-badge&logo=android&logoColor=white"></a>
+<a href="https://github.com/le5inioo/Aerial-MiTV/releases/latest"><img alt="Version" src="https://img.shields.io/github/v/release/le5inioo/Aerial-MiTV?style=flat-square&label=version&color=2997ff"></a>
 <a href="LICENSE"><img alt="License MIT" src="https://img.shields.io/badge/license-MIT-555555?style=flat-square"></a>
 <img alt="Android 11 / API 30" src="https://img.shields.io/badge/Android%2011%20%2F%20API%2030-3ddc84?style=flat-square&logo=android&logoColor=white">
 
@@ -17,169 +17,58 @@ A launcher tuned for one TV: the Xiaomi TV S65 Mini LED (MiTV-MFTR0). Forked fro
 
 [中文](README.md) · English
 
-## Upstream
+## About
 
-This is a fork of [pengchujin/aerial-tv](https://github.com/pengchujin/aerial-tv) — an Apple TV–style Android TV launcher without ads or recommendation feeds. Features, installation for other brands, supported devices and the adaptation workflow all live there; this repository does not repeat them.
+Upstream handles the features, other devices and the install scripts; this repo only covers this one TV. Still MIT (upstream attribution in [NOTICE.md](NOTICE.md)).
 
-Two things only: **what this TV is**, and **what changed**. Still MIT, upstream attribution in [NOTICE.md](NOTICE.md).
+Measured on MiTV-MFTR0 / L65MA-SPL, mt5879, 3.7 GB usable RAM, Android 11, HyperOS 2.0.5.0. Apps only ever see 1080p (1920×1080 / 60 Hz); the panel's real resolution is not readable, so do not plan for nominal 4K. Full measurements are in [docs/devices/xiaomi-mitv-mftr0.md](docs/devices/xiaomi-mitv-mftr0.md) (Chinese).
 
-## The TV
+## Features
 
-Everything was measured on this one unit, read straight off the device on 2026-11-05.
+- **One wallpaper per tile**: focus swaps the picture, remembered by slot index; builtin, phone-uploaded photo or video, Bing daily, or inherit.
+- **Video wallpapers**: muted loops, a key press freezes the current frame; the screensaver can loop one video, or use flip clock / aerial / photos / image host / system.
+- **Image host**: multiple named links; wallpaper and screensaver each pick one or more hosts or all aggregated, changes apply at once.
+- **Also**: playback speed 0.5×–1.5× in 0.1 steps, 650 ms wallpaper dissolve, wake splash, auto-brightness fix, developer mode and ADB restored at boot.
+- **Five languages**: zh, en, ru, uk, kk.
 
-| Item | Value |
-|---|---|
-| Brand / model | Xiaomi MiTV-MFTR0 |
-| Retail name | Xiaomi TV S65 Mini LED 臻享版 (L65MA-SPL) |
-| CPU | mt5879 · armeabi-v7a · 4 cores |
-| RAM | 3.7 GB usable (`MemTotal: 3,860,504 kB`, 4 GB nominal) |
-| OS | Android 11 (SDK 30) |
-| Firmware | HyperOS 2.0.5.0 (`OS2.0.5.0.RFTMATV`) |
-
-Apps only ever see 1080p, so budget layout and frame time against that: the system exposes 1920×1080 in a single 60 Hz mode, and the panel's real resolution is not readable from properties — do not plan for the nominal 4K.
-
-## What changed
-
-Against upstream `main` as of 2026-11-05: 28 commits, 210 files, +2898 / −16899 lines — more deleted than added, because upstream's `lite/`, the `site/` website, the other device notes and the generic installer are gone. What is left falls into four parts.
-
-### 1. Making it the home screen
-
-| Change | Where | Why |
-|---|---|---|
-| Package renamed to `com.ts.launcher` | `applicationId` in `app/build.gradle.kts` | The firmware only hands HOME to packages on its own whitelist (`MitvSettings.isThirdPartyHomeAllowed` → `isAppInWhitelistWithFlag(pkg, 4)`; the list is cloud-delivered and unreadable by shell). `com.ts.launcher` is on it, `app.orchard.tv` is not. Components still live in the `app.orchard.tv` namespace — deliberate |
-| PatchWall disabled | `tools/install-ts.sh` (`DISABLE_STOCK_HOME=1`) | The package name alone is not enough: while PatchWall is alive, HOME resolves to a chooser (`addPreferredActivity: Don't set 3-app default home`). Disabled, HOME resolves straight to Aerial, no flash of the stock launcher |
-| Home guard | `guard/HomeGuardService.kt` | Switches back whenever the stock launcher comes to the front; a notification listener revives it after standby kills it; boot, wake and revival all wait 1.5 s before taking over, so a CEC source switch is not covered up |
-| Conditional key filtering | `guard/HomeGuardService.filterKeys` | Intercepts HOME before the system while Aerial is in front (no flash); not in other apps — filtering everywhere made third-party apps move focus two steps per press. Injected `input keyevent` bypasses it |
-| Developer mode and ADB kept on | `guard/GuardSetup.kt` | On boot, writes back `development_settings_enabled`, `developer_status` (Xiaomi private key) and `adb_enabled`, then watches them with a `ContentObserver`. State is mirrored to device-protected storage so it survives the pre-unlock window. Standby resets `adb_enabled` to 0; without this ADB is gone for good |
-| 10-minute PIN grace | `ui/home/PinPad.kt` | One correct PIN covers the next 10 minutes, so leaving Kids mode does not re-prompt on every settings page |
-
-### 2. Getting back from a broken state
-
-| Script | What it does |
-|---|---|
-| `tools/rescue.sh` / `tools/rescue.bat` | Black-screen recovery in one command: connect → diagnose → re-enable PatchWall → hand HOME back → wake the panel. `--scan` searches the subnet, `--check` only diagnoses. `rescue.bat` runs it on a double-click in Windows |
-| `tools/restore.sh` | Restores the stock launcher: `pm enable` **first**, then hand HOME over — the other order leaves no Home for a second and the screen goes black. `PKG=` overrides the package |
-| `tools/install-ts.sh` | Installs `com.ts.launcher`, sets it as HOME, optionally disables PatchWall; `KEEP_ADB=1` reopens ADB when the TV closes it, `BUILD=1` builds first |
-| `tools/dev-mode.sh` | Opens developer mode and ADB once |
-| `tools/test_rescue.py`, `tools/test_restore.py` | Stub-adb tests for the two scripts above |
-
-**Never disable `com.mitv.tvhome` unless a whitelisted launcher is installed and verified.** With no whitelisted HOME, HOME falls to `FallbackHome`, which refuses third-party launchers too: the TV boots to a black screen logging `User unlocked but no home`. Measured the hard way.
-
-### 3. Launcher features added
-
-| Feature | What it does | Where |
-|---|---|---|
-| **One wallpaper per tile** | Each tile in the top row gets its own wallpaper, swapped as focus moves; stored by slot index so it survives app changes; builtin, phone-uploaded photo or video, Bing daily, or "inherit" | Personalize → Wallpaper → per tile |
-| **Video wallpapers** | Phone-uploaded videos as wallpaper: muted, looping, one after another; a key press freezes the current frame and playback resumes from it | same |
-| **LAN image-host wallpaper** | Fetches a fresh image from a local image host every time Home comes back; address editable on the phone page | Personalize → Wallpaper |
-| **Playback speed** | 0.5×–1.5× in 0.1 steps for video wallpapers and the screensaver, left/right to change | Personalize → Wallpaper / Screensaver |
-| **Fade between wallpapers** | Every wallpaper switch is a 650 ms dissolve instead of a hard cut | automatic |
-| **Wake splash** | 5 s spinner when waking from standby, then fades into Home; nothing on cold starts or restarts (the firmware's own boot animation covers those) | Personalize → TV System → Wake animation |
-| **Single-video screensaver** | Pick one specific video in a second-level picker | Personalize → Screensaver |
-| **Flip clock screensaver** | FlipClock-style split-flap cards on black: 24-hour HH MM SS, a flap every second; the whole clock drifts a little each minute against burn-in | Personalize → Screensaver → Flip clock |
-| **Auto-brightness fix** | Fixes the dead brightness slider under Xiaomi's auto-brightness; shows a hint instead of forcing the slider where unsupported | Control Center → Brightness |
-| **Developer mode at boot** | Reopens developer options and ADB after every boot (Xiaomi closes them now and then) | Personalize → TV System |
-| **Five languages** | zh, en, ru, uk, kk — new strings included | — |
-
-Three of them are worth explaining:
-
-**The wake splash.** Standby `forceStopPackage`s every third-party app on this firmware (`MitvActivityManagerService.killAllThirdApp`), so a wake is a cold start: Home's first composition plus the video-wallpaper decoder hold the main thread — `Skipped 49 frames` in the log, the spinner jerking. So the splash **wraps** Home instead of sitting over it: four seconds of spinner alone (nothing else composes, zero dropped frames measured), the spinner eases out, Home composes behind it, and the fade starts once Home has laid out — about 4.9 s panel to desktop. Triggered in `onResume` (the `SCREEN_ON` broadcast lands ~2 s after the panel lights, too late), once per screen-off (armed when the screen goes off; the firmware sends no `SCREEN_OFF` broadcast, so `onStop` with the panel dark arms it).
-
-**Upstream's boot animation removed.** It showed "a few frames" here: cold power-on, `adb reboot` and the power menu's restart all start Home 13 s in, with the firmware's animation on top from 7.3 s to 14.9–17.1 s — Aerial's played underneath and only its tail was visible. Telling the cases apart is impossible: `ro.boot.bootreason` is SELinux-blocked for apps (empty string, no exception), `sys.boot.reason` lands after `BOOT_COMPLETED`, and the timings are identical. Dropped it.
-
-**Speed slider contrast.** Focused, the accent and the thumb were both white; the fill now inverts against the background.
-
-## Tile art
-
-[docs/tile-icons/](docs/tile-icons/) holds 69 hand-made 16:9 tile pictures (640×360 PNG) covering most apps a Chinese TV runs, usually in 2–4 colour variants. **The file name is the app**; a trailing digit is the variant (`NETFLIX`, `NETFLIX2`, `NETFLIX3`).
-
-**Getting them**
-
-- One at a time: open [`docs/tile-icons/`](https://github.com/le5inioo/aerial-mitv-mftr0/tree/main/docs/tile-icons) and use Download on the file you want.
-- Direct link, with the file name swapped in:
-  ```
-  https://raw.githubusercontent.com/le5inioo/aerial-mitv-mftr0/main/docs/tile-icons/BILIBILI.png
-  ```
-  (`raw.githubusercontent.com` is often blocked in mainland China; the page above is the fallback.)
-- All at once:
-  ```bash
-  git clone --depth 1 https://github.com/le5inioo/aerial-mitv-mftr0.git
-  ls aerial-mitv-mftr0/docs/tile-icons
-  ```
-
-**Using them**
-
-- **Upload from the phone page** (recommended): Control Center → phone settings, scan the code, upload the picture for an app. It is cropped to the tile's 16:9 and remembered by package name, ahead of the app's own art and of the icon library (`CustomIcons`).
-- **Serve them yourself**: `IconLibrary` reads `<site>/index.json`, shaped `{"icons": {"<package>": "<relative path>"}}`; map file names to packages and several TVs can share them.
-
-**What's inside** (`×N` = N variants, 69 files): AIDA64, ALBUM×2, ANDRTV×2, ANGRYBIRDDS, APPLETV, APPSTORE, BILIBILI×2, BOMBSQUAD, CALENDAR, CHILD×2, DOUYIN, EMBY×2, FEINIUTV, FILEMAN, FNMUSIC, GOUGOU, GUANJIA, HOME, HONGGUO×2, IPTV, IQIYI×3, JIGUANGTV×2, KANKEAPP, KEEP, KODI×2, MANGOTV×2, MIGUTV×2, MIHOME, MIJIA, MITUTU, NETEASY, NETFLIX×3, POSTER, QUARK, SETTINGS×2, SHADOWROCKET, SONGLOFT, TOUPING, USB×2, VIDHUB, WEATHER, WYBMH×2, XIAOAI, XIAOCAOZS, YIQIKANTV×2, YOUKU×2, YOUTUBE×4.
-
-The pictures are MIT, like the rest of the repo; the marks in them belong to their owners and are there only to identify the app on a tile — see [docs/tile-icons/README.md](docs/tile-icons/README.md).
+Tile art: 69 pictures in [docs/tile-icons/](docs/tile-icons/) (file name is the app, uploaded from the phone page). Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Install
 
-The TV needs ADB on (Settings → About → press the model row repeatedly, then Settings → Account & Security → ADB debugging), and must be on the same network as the computer.
+Turn on ADB on the TV (Settings → About → tap "Model" repeatedly, then Settings → Account & Security → ADB debugging), and put the TV on the same network:
 
 ```bash
-git clone https://github.com/le5inioo/aerial-mitv-mftr0.git
-cd aerial-mitv-mftr0
+git clone https://github.com/le5inioo/Aerial-MiTV.git
+cd Aerial-MiTV
 TV=<TV-IP> BUILD=1 KEEP_ADB=1 DISABLE_STOCK_HOME=1 tools/install-ts.sh
 ```
 
-Or grab `ts-launcher-1.84-web19.apk` from [Releases](https://github.com/le5inioo/aerial-mitv-mftr0/releases/latest) and pass `APK_FILE=`.
+Or grab an APK from [Releases](https://github.com/le5inioo/Aerial-MiTV/releases/latest) and pass `APK_FILE=`. Upgrading is the same command; settings survive.
 
-`DISABLE_STOCK_HOME=1` disables `com.mitv.tvhome`. That buys an instant, flash-free Home key and costs a black screen if Aerial ever breaks — keep `tools/rescue.sh` at hand and ADB open. Without it the guard fights PatchWall for the Home key instead (brief flash). Upgrades are the same command; settings survive (`versionCode` counts up from 1000).
+`DISABLE_STOCK_HOME=1` disables the stock `com.mitv.tvhome`: instant Home key with no flash, at the cost of a black screen if Aerial ever breaks — keep ADB open and `tools/rescue.sh` at hand. Without it the guard fights PatchWall for the Home key (brief flash). **Never disable `com.mitv.tvhome` until a whitelisted launcher is installed and verified**, or HOME falls to `FallbackHome` and the TV boots to a black screen.
 
 ## Black screen
 
-A black screen means nothing owns HOME: the stock launcher was disabled and the replacement is gone. The remote's Home key does nothing and settings are unreachable — ADB is the only way in.
+A black screen means nothing owns HOME; ADB is the only way in:
 
 ```bash
-tools/rescue.sh              # the default address
+tools/rescue.sh              # default address
 tools/rescue.sh <TV-IP>
-tools/rescue.sh --scan       # find a TV with ADB open on this subnet
+tools/rescue.sh --scan       # find a TV with ADB open
 tools/rescue.sh --check      # diagnose only, change nothing
 ```
 
-On Windows, double-click `tools/rescue.bat`. Exit status 0 means HOME resolves again. To go back to the stock launcher: `TV=<TV-IP> tools/restore.sh` (add `--uninstall` to remove Aerial as well).
+On Windows, double-click `tools/rescue.bat`. To restore the stock launcher: `TV=<TV-IP> tools/restore.sh` (add `--uninstall` to remove Aerial too).
 
 ## Known limits
 
-- **ADB dies in standby** — Wi-Fi goes off, and remote wake (WoL, Mi Home) cannot bring it back. Standby behaviour can only be tested with the physical remote; injected `keyevent 26` does not survive standby.
-- **Injected keys skip the accessibility filter** — testing "Home key returns to Aerial from the stock launcher" needs the real remote.
-- **PatchWall shows for a moment after a wake** — the process was killed during standby, so nothing can take over early. Boot reaches Aerial 6.7–9.9 s after the panel lights.
-- **Do not disable `com.mitv.tvhome`** unless a whitelisted launcher is installed and verified.
-- **Source switching** was only verified against the 8 inputs of this unit.
-
-## Reading the logs
-
-Diagnostics go to the `AerialDiag` tag (`system/DiagLog.kt`):
-
-```bash
-adb connect <TV-IP>:5555
-adb logcat -d -s AerialDiag:* | tail -30
-adb shell getprop ro.build.version.sdk
-adb shell dumpsys window | grep mCurrentFocus
-adb shell dumpsys accessibility | grep -i filter
-```
-
-Every measurement, dead end and reason — the whitelist mechanism, standby killing processes, CEC stealing the input, the FallbackHome black screen — is in [docs/devices/xiaomi-mitv-mftr0.md](docs/devices/xiaomi-mitv-mftr0.md) (Chinese, far more detailed than this file). It is a dated log, and some entries were written on another firmware generation (`OS3.0.10x` / Android 14); the version numbers there follow whatever `getprop` reported at the time, and the top of that file says so.
+- ADB dies in standby with Wi-Fi off; remote wake cannot bring it back. Standby behaviour can only be tested with the physical remote.
+- Injected keys skip the accessibility filter — use the real remote to test the Home key.
+- Source switching was only verified against this unit's 8 inputs.
 
 ## Building
 
-JDK 17 and Android SDK 36.
-
-```bash
-./gradlew assembleStandardRelease
-BUILD=1 KEEP_ADB=1 TV=<TV-IP> tools/install-ts.sh
-python tools/test_rescue.py && python tools/test_restore.py
-```
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for structure and performance constraints, [docs/HANDOFF.md](docs/HANDOFF.md) for handover notes.
-
-`versionName` follows upstream (`1.84`); `versionCode` runs on its own four-digit line (`1095`, counting up from 1000) so the two never collide.
-
-"Check for updates" avoids `api.github.com` — 60 requests an hour per IP is easy to spend, and the TV hit a 403 there on 2026-11-05. It requests `github.com/le5inioo/aerial-mitv-mftr0/releases/latest` instead, follows the 302 to `/releases/tag/v1.85-web1`, and takes the tag off the landing URL as the version (`v1.85-web1` → `1.85`). The APK always comes from `.../releases/latest/download/ts-launcher.apk`. A release must therefore carry a tag matching `versionName` (bumping only the webNN counter will not prompt the TV), and the APK must be uploaded a second time under the name `ts-launcher.apk`. The repo has a single module now (`app`); upstream's `lite/`, `site/` and the other device notes are gone, so `./gradlew` only builds the full app.
+JDK 17 and Android SDK 36: `./gradlew assembleStandardRelease`. Handover notes in [docs/HANDOFF.md](docs/HANDOFF.md).
 
 ## License
 
