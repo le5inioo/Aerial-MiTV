@@ -269,6 +269,10 @@ class HomeGuardService : AccessibilityService() {
         goHome()
     }
 
+    /** A package installer or app store, what an update from Control Center leaves in front. */
+    private fun isInstaller(pkg: String): Boolean =
+        "installer" in pkg || pkg == "com.android.vending" || pkg == "com.dangbeimarket"
+
     /** Whether usage stats, where Aerial may read them, show a stock launcher in front now. */
     private fun stockLauncherByUsageStats(): Boolean {
         if (!usageStatsAllowed(this)) return false
@@ -754,6 +758,40 @@ class HomeGuardService : AccessibilityService() {
     }
 
     /**
+     * MediaTek's MonitorActivityController (com.mediatek.tv.service) registers as ActivityManager's
+     * IActivityController and writes [RUNNING_PACKAGE] as each activity start begins — 20-50 ms
+     * after Home key-up on Xiaomi MiTV-MFTR0 (Android 14, OS3.0.17.0.UFTMATV), carrying the target
+     * package name directly without waiting 55-200 ms for usage stats. Feature-detected so it only
+     * activates on firmwares exposing this setting; [uiBoostChanged] and window changes remain as
+     * fallback (for example when the setting value did not change).
+     */
+    private fun watchRunningPackage() {
+        if (!backOnPause || runningPackageWatched || Settings.Global.getString(contentResolver, RUNNING_PACKAGE) == null) return
+        runningPackageWatched = true
+        contentResolver.registerContentObserver(Settings.Global.getUriFor(RUNNING_PACKAGE), false, runningPackageObserver)
+    }
+
+    private var runningPackageWatched = false
+
+    private val runningPackageObserver by lazy {
+        object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) = runningPackageChanged()
+        }
+    }
+
+    private fun runningPackageChanged() {
+        if (screenOff || !stockHomeMayCome(needsUsage = false)) return
+        if (getSystemService<PowerManager>()?.isInteractive == false) return
+        val pkg = Settings.Global.getString(contentResolver, RUNNING_PACKAGE) ?: return
+        if (stockHomes.isEmpty()) refreshStockHomes()
+        val cls = stockHomes[pkg]?.firstOrNull() ?: return
+        handler.removeCallbacks(stockHomeLook)
+        Log.i(TAG, "$RUNNING_PACKAGE switched to $pkg; bringing Aerial back")
+        lastWindow = pkg to cls
+        goHome()
+    }
+
+    /**
      * Home in another app on Xiaomi from Android 12 (backOnPause): PatchWall showed for some 300 ms
      * before Aerial came back (MiTV-MFFU1, Android 14, Home in Quark: seven frames of it in a
      * screen recording). PatchWall's window change, which the guard answers, comes once it has
@@ -805,13 +843,13 @@ class HomeGuardService : AccessibilityService() {
     }
 
     /** Aerial's Home not in front, so Home may leave something for PatchWall; see uiBoostChanged. */
-    private fun stockHomeMayCome(): Boolean {
+    private fun stockHomeMayCome(needsUsage: Boolean = true): Boolean {
         if (!backOnPause || aerialResumed || bootStockHolding) return false
         val now = SystemClock.uptimeMillis()
         if (now < allowStockUntil || now - broughtBackAt < 1_000) return false
         val sinceBoot = SystemClock.elapsedRealtime()
         if (sinceBoot < BOOT_WINDOW_MS || sinceBoot - screenOnAt < WAKE_WINDOW_MS) return false
-        return usageStatsAllowed(this)
+        return !needsUsage || usageStatsAllowed(this)
     }
 
     /** The app Home was last pressed in; see frontAfterHome. */
@@ -938,6 +976,7 @@ class HomeGuardService : AccessibilityService() {
         }
         checkMouseWithFilter(this)
         watchUiBoost()
+        watchRunningPackage()
         CecSwitch.register(this)
         // The profile is in credential storage: only once unlocked.
         if (SystemClock.elapsedRealtime() < BOOT_WINDOW_MS && GuardSetup.isUserUnlocked(this) &&
@@ -1052,8 +1091,27 @@ class HomeGuardService : AccessibilityService() {
         if (justUpdated() && getSystemService<PowerManager>()?.isInteractive == true &&
             GuardSetup.installerJustClosed(this)
         ) {
-            DiagLog.i("guard: bound again after Aerial's own update; bringing Aerial back over the installer")
-            handler.postDelayed({ if (!aerialResumed) goHome() }, AFTER_UPDATE_MS)
+            handler.postDelayed({
+                if (aerialResumed) return@postDelayed
+                // Not into a screen that went off meanwhile (PR #1735's point).
+                if (screenOff || getSystemService<PowerManager>()?.isInteractive != true) {
+                    DiagLog.i("guard: bound again after Aerial's own update; the screen is off, leaving it")
+                    return@postDelayed
+                }
+                // Only over the installer or a stock launcher. An update finished in the
+                // background while TVBox played on Xiaomi MiTV-MFTR0 (Android 14), and this pulled
+                // the viewer back to Home (issue #1689, the reporter's logcat). A window seen since
+                // this binding (a new process: the update killed the old one) is newer than usage
+                // stats, which may not have the app's move to the front yet (2.16 still pulled
+                // Aerial over TVBox there, the reporter's reading of it).
+                val app = lastWindow?.first?.takeIf { it != packageName } ?: frontByUsage()?.first
+                if (app != null && !isInstaller(app) && !isStockHome(app)) {
+                    DiagLog.i("guard: bound again after Aerial's own update with $app in front; leaving it there")
+                } else {
+                    DiagLog.i("guard: bound again after Aerial's own update; bringing Aerial back over the installer")
+                    goHome()
+                }
+            }, AFTER_UPDATE_MS)
         }
         // Bound a little after boot, or brought back after the firmware killed Aerial: either way
         // the stock launcher is what's in front, and the window change that showed it is long gone.
@@ -1335,6 +1393,10 @@ class HomeGuardService : AccessibilityService() {
         if (uiBoostWatched) {
             uiBoostWatched = false
             runCatching { contentResolver.unregisterContentObserver(uiBoostObserver) }
+        }
+        if (runningPackageWatched) {
+            runningPackageWatched = false
+            runCatching { contentResolver.unregisterContentObserver(runningPackageObserver) }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             runCatching { unregisterReceiver(userUnlocked) }
@@ -2039,7 +2101,9 @@ class HomeGuardService : AccessibilityService() {
         if (pkg in stockHomes) {
             // Any of its screens, uncovered once the installer of an update from Control Center closed.
             if (!allowed && isActivity(pkg, cls) && GuardSetup.installerJustClosed(this)) {
-                Log.i(TAG, "stock launcher $pkg in front after an update; bringing Aerial back")
+                // In Aerial's log as well, to tell this from the take-over at the binding above
+                // (issue #1689: 2.16 still covered TVBox after an update, which of the two unknown).
+                DiagLog.i("guard: stock launcher $pkg/$cls in front after Aerial's own update; bringing Aerial back")
                 goHome()
                 return
             }
@@ -2439,6 +2503,8 @@ class HomeGuardService : AccessibilityService() {
         private const val STOCK_HOME_SLACK_MS = 100L
         /** Xiaomi's UI boost; see uiBoostChanged. */
         private const val UI_BOOST = "mitv_fast_cur_anim_scale"
+        /** MediaTek's MonitorActivityController setting; see watchRunningPackage. */
+        private const val RUNNING_PACKAGE = "running_package_name"
         private const val XGIMI_FRAMEWORK = "com.xgimi.xgimiframeworkui"
         /** Linux input codes of a remote's Home key: KEY_HOME and KEY_HOMEPAGE; see isStrayHome. */
         private const val SCAN_KEY_HOME = 102
