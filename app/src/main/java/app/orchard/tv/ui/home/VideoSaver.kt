@@ -32,6 +32,7 @@ import app.orchard.tv.system.DiagLog
 import app.orchard.tv.wallpaper.ScreensaverVideo
 import app.orchard.tv.wallpaper.ScreensaverVideos
 import app.orchard.tv.wallpaper.Wallpapers
+import java.time.LocalDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharedFlow
@@ -39,7 +40,7 @@ import kotlinx.coroutines.withContext
 
 /** A local, silent playlist, shared by Home and AerialDream. An empty or broken set falls back. */
 @Composable
-internal fun VideoSaver(steps: SharedFlow<Int>, onUnavailable: () -> Unit, only: String? = null) {
+internal fun VideoSaver(now: LocalDateTime, steps: SharedFlow<Int>, onUnavailable: () -> Unit, only: String? = null) {
     val context = LocalContext.current
     // The carousel ("My Videos, In Turn") holds one video and loops it; a chosen one (Personalize)
     // loops that one. Right rolls the held one on; leaving no longer does (owner, 2026-11-14).
@@ -53,12 +54,12 @@ internal fun VideoSaver(steps: SharedFlow<Int>, onUnavailable: () -> Unit, only:
             else -> all.shuffled()
         }
     }
-    LocalFilms(films, steps, onUnavailable, rolling = rolling)
+    LocalFilms(films, steps, onUnavailable, now, rolling = rolling)
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-private fun LocalFilms(films: List<ScreensaverVideo>?, steps: SharedFlow<Int>, onUnavailable: () -> Unit, rolling: Boolean = false) {
+private fun LocalFilms(films: List<ScreensaverVideo>?, steps: SharedFlow<Int>, onUnavailable: () -> Unit, now: LocalDateTime, rolling: Boolean = false) {
     val context = LocalContext.current
     val player = remember {
         // As AerialSaver does: Home's wallpaper film starts again as Home resumes for a moment
@@ -176,5 +177,8 @@ private fun LocalFilms(films: List<ScreensaverVideo>?, steps: SharedFlow<Int>, o
             },
             onRelease = { player.clearVideoSurfaceView(it.surface) },
         )
+        // The local films use the same clock as the aerial and image-host screensavers: no place
+        // name, and no extra shade over a moving picture (as in AerialSaver).
+        Labels(null, now, shade = false)
     }
 }

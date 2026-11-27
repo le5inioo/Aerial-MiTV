@@ -449,7 +449,7 @@ private fun UpdatePage(vm: HomeViewModel, takeFocus: Boolean) {
     var qr by remember { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(Unit) {
         // This fork has no website of its own: the phone lands on the release list.
-        val url = "https://github.com/le5inioo/aerial-mitv-mftr0/releases/latest"
+        val url = "https://github.com/le5inioo/Aerial-MiTV/releases/latest"
         qr = withContext(Dispatchers.Default) { PhoneServer.qr(url).asImageBitmap() }
     }
     Column {

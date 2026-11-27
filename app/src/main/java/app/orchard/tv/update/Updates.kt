@@ -55,11 +55,11 @@ object Updates {
      * exactly that on 2026-11-05. `/releases/latest` redirects to `/releases/tag/v1.84-web18`
      * instead, with no quota, so the tag is read off the final URL.
      */
-    private const val LATEST_PAGE = "https://github.com/le5inioo/aerial-mitv-mftr0/releases/latest"
+    private const val LATEST_PAGE = "https://github.com/le5inioo/Aerial-MiTV/releases/latest"
 
     /** Every release of this fork also carries a copy of the APK under this stable name. */
     private const val APK_FALLBACK =
-        "https://github.com/le5inioo/aerial-mitv-mftr0/releases/latest/download/ts-launcher.apk"
+        "https://github.com/le5inioo/Aerial-MiTV/releases/latest/download/ts-launcher.apk"
 
     private const val TAG_PATH = "/releases/tag/"
 

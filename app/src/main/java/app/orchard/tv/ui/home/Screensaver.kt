@@ -147,7 +147,7 @@ fun Screensaver(visible: Boolean, apps: List<AppEntry>, now: LocalDateTime, skip
                     now, skips.steps, onUnavailable = { hostFailed = true },
                 )
                 ScreensaverMode.Videos -> if (videosFailed) PhotoSaver(now, skips.steps) else VideoSaver(
-                    skips.steps, onUnavailable = { videosFailed = true }, only = Wallpapers.screensaverVideo,
+                    now, skips.steps, onUnavailable = { videosFailed = true }, only = Wallpapers.screensaverVideo,
                 )
             }
         }
@@ -333,7 +333,7 @@ private fun labelShade(): ImageBitmap {
 
 /** Place name bottom-left, time top-right: how tvOS labels its screensaver. Each can be turned off in Personalize. */
 @Composable
-private fun Labels(
+internal fun Labels(
     caption: String?,
     now: LocalDateTime,
     showTime: Boolean = true,

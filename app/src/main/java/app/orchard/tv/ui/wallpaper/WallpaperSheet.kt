@@ -441,12 +441,14 @@ fun WallpaperSheet(
                             AerialSettings.aerialQuality, AerialSettings::chooseAerialQuality,
                         )
                     }
-                    // The clock screensaver is its clock, and the others show none.
-                    if (Wallpapers.screensaver == ScreensaverMode.Aerial || Wallpapers.screensaver == ScreensaverMode.Photos) Choices(
+                    // The clock screensaver is its clock, and the others show none. Image-host
+                    // pictures and the local videos use the same Labels clock as aerial and photos.
+                    if (Wallpapers.screensaver == ScreensaverMode.Aerial || Wallpapers.screensaver == ScreensaverMode.Photos || Wallpapers.screensaver == ScreensaverMode.Webhost || Wallpapers.screensaver == ScreensaverMode.Videos) Choices(
                         R.string.ss_show_time, stringResource(R.string.ss_show_time_hint), note,
                         listOf(true to R.string.st_on, false to R.string.st_off),
                         AerialSettings.screensaverClock, AerialSettings::chooseScreensaverClock,
                     )
+                    // A place name only exists for the aerial and photo screensavers, not the host.
                     if (Wallpapers.screensaver == ScreensaverMode.Aerial || Wallpapers.screensaver == ScreensaverMode.Photos) Choices(
                         R.string.ss_show_caption, stringResource(R.string.ss_show_caption_hint), note,
                         listOf(true to R.string.st_on, false to R.string.st_off),

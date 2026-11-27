@@ -365,7 +365,7 @@
   <div id="ssHosts"></div>
   <div class="list" id="ssTimeBox" style="margin-top:10px">
     <label class="item"><span class="txt"><span data-i18n="sw_saver_time"></span><span class="sub" data-i18n="sw_saver_time_sub"></span></span><input class="switch" type="checkbox" id="swSaverTime" data-setting="screensaverClock"></label>
-    <label class="item"><span class="txt"><span data-i18n="sw_saver_place"></span><span class="sub" data-i18n="sw_saver_place_sub"></span></span><input class="switch" type="checkbox" id="swSaverPlace" data-setting="screensaverCaption"></label>
+    <label class="item" id="ssPlaceRow"><span class="txt"><span data-i18n="sw_saver_place"></span><span class="sub" data-i18n="sw_saver_place_sub"></span></span><input class="switch" type="checkbox" id="swSaverPlace" data-setting="screensaverCaption"></label>
   </div>
 </section>
 
@@ -560,7 +560,7 @@ const TEXTS = {
   "按键也不停，背景压暗一点；进入下面的 App 时停下。",
   "在主屏幕显示天气",
   "屏保显示时间",
-  "航拍和照片屏保。时间和地名会不时挪一点位置，避免烧屏。",
+  "航拍、照片、视频和图床屏保。时间（航拍和照片还有地名）会不时挪一点位置，避免烧屏。",
   "屏保显示地点",
   "航拍屏保左下角的地名，照片屏保的图片标题。",
   "信号源的实时画面当背景，没有声音。往下选 App 时换成磨砂背景。",
@@ -790,7 +790,7 @@ const TEXTS = {
   "Keys do not stop it, and it is shaded a little; it stops when you go down to the apps.",
   "Weather on Home",
   "Time on the screensaver",
-  "Aerial and photo screensavers. The time and place name move a little now and then, so nothing burns in.",
+  "Aerial, photo, video and image-host screensavers. The time (and the place name on aerial and photos) move a little now and then, so nothing burns in.",
   "Place on the screensaver",
   "The place name bottom left on the aerial screensaver, and the picture’s title on the photo screensaver.",
   "An input's live picture behind Home, without sound. Going down to the apps, it gives way to a frosted background.",
@@ -1020,7 +1020,7 @@ const TEXTS = {
   "Кнопки не останавливают, фон чуть затемнён; останавливается у приложений ниже.",
   "Погода на главном экране",
   "Время на заставке",
-  "Заставки с аэросъёмкой и фото. Время и название места иногда слегка сдвигаются, чтобы экран не выгорал.",
+  "Заставки с аэросъёмкой, фото, видео и хостингом изображений. Время (и название места на аэросъёмке и фото) иногда слегка сдвигаются, чтобы экран не выгорал.",
   "Место на заставке",
   "Название места слева внизу на заставке с аэросъёмкой и название снимка на заставке с фото.",
   "Живая картинка входа за главным экраном, без звука. Когда вы переходите к приложениям ниже, фон становится матовым.",
@@ -1250,7 +1250,7 @@ const TEXTS = {
   "Кнопки не зупиняють, тло трохи затемнене; зупиняється біля застосунків нижче.",
   "Погода на головному екрані",
   "Час на заставці",
-  "Заставки з аерозйомкою і фото. Час і назва місця іноді трохи зсуваються, щоб екран не вигорав.",
+  "Заставки з аерозйомкою, фото, відео та хостингом зображень. Час (і назва місця на аерозйомці й фото) іноді трохи зсуваються, щоб екран не вигорав.",
   "Місце на заставці",
   "Назва місця зліва внизу на заставці з аерозйомкою і назва знімка на заставці з фото.",
   "Жива картинка входу за головним екраном, без звуку. Коли ви переходите до застосунків нижче, тло стає матовим.",
@@ -1480,7 +1480,7 @@ const TEXTS = {
   "Түймелер тоқтатпайды, фон сәл күңгірт; төмендегі қолданбаларда тоқтайды.",
   "Басты экранда ауа райы",
   "Экран қорғауышта уақыт",
-  "Аэрожиын және фото қорғауыштары. Экран күймес үшін уақыт пен орын атауы анда-санда сәл жылжиды.",
+  "Аэрожиын, фото, бейне және сурет хостингі қорғауыштары. Экран күймес үшін уақыт (аэрожиын мен фотоң орын атауымен бірге) анда-санда сәл жылжиды.",
   "Экран қорғауышта орын",
   "Аэрожиын экран қорғауышында төменгі сол жақтағы орын атауы, фото экран қорғауышында сурет атауы.",
   "Кірістің тірі суреті басты экран артында, дыбыссыз. Төмендегі қолданбаларға өткенде күңгірт фонға ауысады.",
@@ -2086,8 +2086,11 @@ function renderScreensaver() {
   // The same named links, with a tick for each use, while the image host is the screensaver.
   const hostBox = $('#ssHosts'); hostBox.replaceChildren();
   if (state.screensaver === 'webhost') hostBox.appendChild(webhostEditor('saver'));
-  // The time only over the aerial and photo screensavers.
-  $('#ssTimeBox').hidden = state.screensaver !== 'aerial' && state.screensaver !== 'photos';
+  // The time over the aerial, photo, video and image-host screensavers (the host pictures and
+  // local videos use the same Labels clock). The place name still only applies to aerial and photos.
+  const withTime = state.screensaver === 'aerial' || state.screensaver === 'photos' || state.screensaver === 'webhost' || state.screensaver === 'videos';
+  $('#ssTimeBox').hidden = !withTime;
+  $('#ssPlaceRow').hidden = state.screensaver === 'webhost' || state.screensaver === 'videos';
   $('#swSaverTime').checked = !!state.screensaverClock;
   $('#swSaverPlace').checked = state.screensaverCaption !== false;
 }
