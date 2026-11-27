@@ -28,7 +28,7 @@ class UpdateHomeReceiver : BroadcastReceiver() {
             try {
                 // Let the firmware finish putting its own page up before covering it.
                 SystemClock.sleep(SETTLE_MS)
-                if (app.getSystemService(PowerManager::class.java)?.isInteractive != true) {
+                if ((app.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive != true) {
                     DiagLog.i("replaced: screen off; leaving Home alone")
                     return@thread
                 }
